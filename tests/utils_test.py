@@ -65,3 +65,31 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(len(formatted), 2)
         self.assertEqual(formatted[0].get("clicks"), "10")
         self.assertEqual(formatted[1].get("clicks"), "20")
+
+    def test_prevent_stdio_inheritance(self):
+        """Tests that prevent_stdio_inheritance sets stdin to DEVNULL if not specified."""
+        import subprocess
+        from unittest.mock import MagicMock, patch
+        from ads_mcp.utils import prevent_stdio_inheritance
+
+        mock_popen = MagicMock()
+        with patch("subprocess.Popen", mock_popen):
+            with prevent_stdio_inheritance():
+                subprocess.Popen(["mock_cmd"])
+
+        mock_popen.assert_called_once_with(
+            ["mock_cmd"], stdin=subprocess.DEVNULL
+        )
+
+    def test_prevent_stdio_inheritance_explicit_stdin(self):
+        """Tests that prevent_stdio_inheritance preserves explicit stdin."""
+        import subprocess
+        from unittest.mock import MagicMock, patch
+        from ads_mcp.utils import prevent_stdio_inheritance
+
+        mock_popen = MagicMock()
+        with patch("subprocess.Popen", mock_popen):
+            with prevent_stdio_inheritance():
+                subprocess.Popen(["mock_cmd"], stdin=subprocess.PIPE)
+
+        mock_popen.assert_called_once_with(["mock_cmd"], stdin=subprocess.PIPE)
