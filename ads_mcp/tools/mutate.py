@@ -50,7 +50,9 @@ def get_disapproved_ads(customer_id: str) -> List[Dict[str, Any]]:
         WHERE ad_group_ad.policy_summary.approval_status IN (
             'DISAPPROVED', 'AREA_OF_INTEREST_ONLY'
         )
-        AND ad_group_ad.status != 'REMOVED'
+        AND ad_group_ad.status = 'ENABLED'
+        AND ad_group.status = 'ENABLED'
+        AND campaign.status = 'ENABLED'
         PARAMETERS omit_unselected_resource_names=true
     """
     try:
@@ -83,7 +85,9 @@ def get_account_health(customer_id: str) -> Dict[str, Any]:
             SELECT ad_group_ad.ad.id
             FROM ad_group_ad
             WHERE ad_group_ad.policy_summary.approval_status IN ('DISAPPROVED', 'AREA_OF_INTEREST_ONLY')
-            AND ad_group_ad.status != 'REMOVED'
+            AND ad_group_ad.status = 'ENABLED'
+            AND ad_group.status = 'ENABLED'
+            AND campaign.status = 'ENABLED'
             PARAMETERS omit_unselected_resource_names=true
         """
         disapproved = sum(
