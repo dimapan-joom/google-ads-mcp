@@ -30,6 +30,7 @@ def search(
     conditions: List[str] | None = None,
     orderings: List[str] | None = None,
     limit: int | None = None,
+    login_customer_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Fetches data from the Google Ads API using the search method
 
@@ -40,10 +41,13 @@ def search(
         conditions: List of conditions to filter the data, combined using AND clauses
         orderings: How the data is ordered
         limit: The maximum number of rows to return
+        login_customer_id: The manager account (MCC) id to use as login-customer-id header.
+            Required when querying sub-accounts that are only accessible via a manager account.
+            If not provided, falls back to the GOOGLE_ADS_LOGIN_CUSTOMER_ID environment variable.
 
     """
 
-    ga_service = utils.get_googleads_service("GoogleAdsService")
+    ga_service = utils.get_googleads_service("GoogleAdsService", login_customer_id=login_customer_id)
 
     query_parts = [f"SELECT {','.join(fields)} FROM {resource}"]
 

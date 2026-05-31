@@ -94,26 +94,25 @@ def _get_login_customer_id() -> str | None:
     return os.environ.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID")
 
 
-def _get_googleads_client() -> GoogleAdsClient:
+def _get_googleads_client(login_customer_id: str | None = None) -> GoogleAdsClient:
     args = {
         "credentials": _create_credentials(),
         "developer_token": _get_developer_token(),
         "use_proto_plus": True,
     }
 
-    # If the login-customer-id is not set, avoid setting None.
-    login_customer_id = _get_login_customer_id()
-
-    if login_customer_id:
-        args["login_customer_id"] = login_customer_id
+    # Explicit parameter takes priority over environment variable.
+    effective_login_customer_id = login_customer_id or _get_login_customer_id()
+    if effective_login_customer_id:
+        args["login_customer_id"] = effective_login_customer_id
 
     client = GoogleAdsClient(**args)
 
     return client
 
 
-def get_googleads_service(serviceName: str) -> GoogleAdsServiceClient:
-    return _get_googleads_client().get_service(
+def get_googleads_service(serviceName: str, login_customer_id: str | None = None) -> GoogleAdsServiceClient:
+    return _get_googleads_client(login_customer_id=login_customer_id).get_service(
         serviceName, interceptors=[MCPHeaderInterceptor()]
     )
 
@@ -122,8 +121,8 @@ def get_googleads_type(typeName: str):
     return _get_googleads_client().get_type(typeName)
 
 
-def get_googleads_client():
-    return _get_googleads_client()
+def get_googleads_client(login_customer_id: str | None = None):
+    return _get_googleads_client(login_customer_id=login_customer_id)
 
 
 def format_output_value(value: Any) -> Any:
