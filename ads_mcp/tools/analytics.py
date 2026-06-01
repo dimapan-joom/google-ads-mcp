@@ -303,3 +303,130 @@ for fn in [
     get_asset_performance,
 ]:
     mcp.add_tool(Tool.from_function(fn, annotations=ToolAnnotations(readOnlyHint=True)))
+
+
+# ──────────────────────────────────────────────
+# Keyword Planner tools
+# ──────────────────────────────────────────────
+
+def get_keyword_ideas(
+    customer_id: str,
+    keywords: List[str],
+    geo_target_constants: List[str] | None = None,
+    language: str | None = None,
+    page_size: int = 50,
+) -> List[Dict[str, Any]]:
+    """Get keyword ideas and search volume data from Google Keyword Planner.
+
+    Uses the KeywordPlanIdeaService to generate keyword ideas based on seed keywords.
+    Returns search volume, competition level, and CPC bid estimates.
+
+    Args:
+        customer_id: The Google Ads customer ID (digits only, no hyphens)
+        keywords: List of seed keywords to base ideas on (e.g. ["running shoes", "sneakers"])
+        geo_target_constants: Optional list of geo target resource names
+            e.g. ["geoTargetConstants/2616"] for Germany.
+            Common: 2616=Germany, 2250=France, 2724=Spain, 2380=Italy,
+                    2616=Germany, 2528=Netherlands, 2616=Germany, 2076=Brazil,
+                    2826=UK, 2036=Australia, 2616=Germany, 2250=France
+        language: Optional BCP-47 language code resource name
+            e.g. "languageConstants/1001" for German, "languageConstants/1000" for English
+        page_size: Max number of results to return (default 50, max 1000)
+    """
+    try:
+        client = utils.get_googleads_client()
+        kp_idea_service = client.get_service("KeywordPlanIdeaService")
+        request = client.get_type("GenerateKeywordIdeasRequest")
+
+        request.customer_id = customer_id
+        request.page_size = min(page_size, 1000)
+
+        # Seed keywords
+        request.keyword_seed.keywords.extend(keywords)
+
+        if geo_target_constants:
+            request.geo_target_constants.extend(geo_target_constants)
+
+        if language:
+            request.language = language
+
+        results = []
+        for idea in kp_idea_service.generate_keyword_ideas(request=request):
+            metrics = idea.keyword_idea_metrics
+            results.append({
+                "keyword": idea.text,
+                "avg_monthly_searches": metrics.avg_monthly_searches,
+                "competition": metrics.competition.name,
+                "competition_index": metrics.competition_index,
+                "low_top_of_page_bid_micros": metrics.low_top_of_page_bid_micros,
+                "high_top_of_page_bid_micros": metrics.high_top_of_page_bid_micros,
+                "low_top_of_page_bid_usd": round(metrics.low_top_of_page_bid_micros / 1_000_000, 4),
+                "high_top_of_page_bid_usd": round(metrics.high_top_of_page_bid_micros / 1_000_000, 4),
+            })
+
+        # Sort by avg monthly searches descending
+        results.sort(key=lambda x: x["avg_monthly_searches"], reverse=True)
+        return results
+
+    except Exception as ex:
+        raise ToolError(f"Keyword Planner error: {ex}")
+
+
+def get_keyword_historical_metrics(
+    customer_id: str,
+    keywords: List[str],
+    geo_target_constants: List[str] | None = None,
+    language: str | None = None,
+) -> List[Dict[str, Any]]:
+    """Get historical search volume and CPC metrics for specific keywords from Keyword Planner.
+
+    Unlike get_keyword_ideas, this returns metrics for exact keywords you specify
+    (not expanded ideas). Useful for checking search volume of known keywords.
+
+    Args:
+        customer_id: The Google Ads customer ID (digits only, no hyphens)
+        keywords: Exact keywords to get metrics for (e.g. ["buy shoes online", "cheap sneakers"])
+        geo_target_constants: Optional geo target resource names
+            e.g. ["geoTargetConstants/2276"] for Germany
+        language: Optional language resource name e.g. "languageConstants/1001" for German
+    """
+    try:
+        client = utils.get_googleads_client()
+        kp_idea_service = client.get_service("KeywordPlanIdeaService")
+        request = client.get_type("GenerateKeywordHistoricalMetricsRequest")
+
+        request.customer_id = customer_id
+        request.keywords.extend(keywords)
+
+        if geo_target_constants:
+            request.geo_target_constants.extend(geo_target_constants)
+
+        if language:
+            request.language = language
+
+        response = kp_idea_service.generate_keyword_historical_metrics(request=request)
+
+        results = []
+        for metric in response.metrics:
+            m = metric.keyword_metrics
+            results.append({
+                "keyword": metric.text,
+                "avg_monthly_searches": m.avg_monthly_searches,
+                "competition": m.competition.name,
+                "competition_index": m.competition_index,
+                "low_top_of_page_bid_usd": round(m.low_top_of_page_bid_micros / 1_000_000, 4),
+                "high_top_of_page_bid_usd": round(m.high_top_of_page_bid_micros / 1_000_000, 4),
+                "monthly_search_volumes": [
+                    {"year": mv.year, "month": mv.month.name, "searches": mv.monthly_searches}
+                    for mv in m.monthly_search_volumes
+                ],
+            })
+
+        return results
+
+    except Exception as ex:
+        raise ToolError(f"Keyword Planner historical metrics error: {ex}")
+
+
+mcp.add_tool(Tool.from_function(get_keyword_ideas))
+mcp.add_tool(Tool.from_function(get_keyword_historical_metrics))
