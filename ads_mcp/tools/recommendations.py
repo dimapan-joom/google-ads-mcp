@@ -52,10 +52,11 @@ def get_google_recommendations(
                'INCREASE_BUDGET', 'MOVE_UNUSED_BUDGET', 'KEYWORD'].
                If empty, returns all types.
     """
-    type_filter = ""
     if types:
         type_list = ", ".join(f"'{t}'" for t in types)
-        type_filter = f"AND recommendation.type IN ({type_list})"
+        type_filter = f"WHERE recommendation.type IN ({type_list})"
+    else:
+        type_filter = ""
 
     # Note: recommendation.impact.base_metrics.* and projected_metrics.* sub-fields
     # were removed in Google Ads API v24. Use recommendation.impact as a whole object.
@@ -72,7 +73,6 @@ def get_google_recommendations(
             recommendation.maximize_clicks_opt_in_recommendation
         FROM recommendation
         {type_filter}
-        PARAMETERS omit_unselected_resource_names=true
     """
     rows = _run_query(customer_id, query)
     for r in rows:
