@@ -57,35 +57,34 @@ def get_google_recommendations(
         type_list = ", ".join(f"'{t}'" for t in types)
         type_filter = f"AND recommendation.type IN ({type_list})"
 
+    # Note: recommendation.impact.base_metrics.* and projected_metrics.* sub-fields
+    # were removed in Google Ads API v24. Use recommendation.impact as a whole object.
     query = f"""
         SELECT
             recommendation.type,
-            recommendation.impact.base_metrics.impressions,
-            recommendation.impact.base_metrics.clicks,
-            recommendation.impact.base_metrics.cost_micros,
-            recommendation.impact.base_metrics.conversions,
-            recommendation.impact.projected_metrics.impressions,
-            recommendation.impact.projected_metrics.clicks,
-            recommendation.impact.projected_metrics.cost_micros,
-            recommendation.impact.projected_metrics.conversions,
+            recommendation.impact,
             recommendation.campaign,
+            recommendation.campaigns,
             recommendation.resource_name,
-            recommendation.raise_target_cpa_recommendation.target_cpa_multiplier,
-            recommendation.campaign_budget_recommendation.budget_option,
-            recommendation.move_unused_budget_recommendation.excess_campaign_budget
+            recommendation.dismissed,
+            recommendation.target_roas_opt_in_recommendation,
+            recommendation.maximize_conversions_opt_in_recommendation,
+            recommendation.maximize_clicks_opt_in_recommendation
         FROM recommendation
         {type_filter}
         PARAMETERS omit_unselected_resource_names=true
     """
     rows = _run_query(customer_id, query)
     for r in rows:
-        base_cost = r.get("recommendation.impact.base_metrics.cost_micros", 0)
-        proj_cost = r.get("recommendation.impact.projected_metrics.cost_micros", 0)
-        r["impact.base_cost_usd"] = round(base_cost / 1_000_000, 2)
-        r["impact.projected_cost_usd"] = round(proj_cost / 1_000_000, 2)
-        base_convs = r.get("recommendation.impact.base_metrics.conversions", 0) or 0
-        proj_convs = r.get("recommendation.impact.projected_metrics.conversions", 0) or 0
-        r["impact.projected_conversion_lift"] = round(proj_convs - base_convs, 1)
+        impact = r.get("recommendation.impact") or {}
+        if isinstance(impact, dict):
+            base = impact.get("base_metrics") or {}
+            proj = impact.get("projected_metrics") or {}
+            r["impact.base_cost_usd"] = round(float(base.get("cost_micros") or 0) / 1_000_000, 2)
+            r["impact.projected_cost_usd"] = round(float(proj.get("cost_micros") or 0) / 1_000_000, 2)
+            base_convs = float(base.get("conversions") or 0)
+            proj_convs = float(proj.get("conversions") or 0)
+            r["impact.projected_conversion_lift"] = round(proj_convs - base_convs, 1)
     return rows
 
 
