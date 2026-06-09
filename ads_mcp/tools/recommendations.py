@@ -21,6 +21,7 @@ from fastmcp.tools import Tool
 from mcp.types import ToolAnnotations
 import ads_mcp.utils as utils
 from google.ads.googleads.errors import GoogleAdsException
+from google.protobuf import field_mask_pb2
 
 
 def _run_query(customer_id: str, query: str) -> List[Dict[str, Any]]:
@@ -182,14 +183,19 @@ def bulk_update_target_roas(
     Each update in the list should have 'campaign_id' and 'target_roas'.
     Target ROAS is expressed as a decimal (e.g., 3.5 means 350% ROAS).
 
+    Optionally pass 'bidding_strategy_type' per entry:
+    - 'MAXIMIZE_CONVERSION_VALUE' → sets maximize_conversion_value.target_roas (PMax)
+    - anything else (default) → sets target_roas.target_roas (Shopping/Search)
+
     Args:
         customer_id: The Google Ads customer ID (digits only, no hyphens)
-        updates: List of dicts with 'campaign_id' (str) and 'target_roas' (float)
+        updates: List of dicts with 'campaign_id' (str), 'target_roas' (float),
+                 and optional 'bidding_strategy_type' (str)
 
     Example:
         updates = [
             {"campaign_id": "123456", "target_roas": 3.5},
-            {"campaign_id": "789012", "target_roas": 2.0},
+            {"campaign_id": "789012", "target_roas": 2.0, "bidding_strategy_type": "MAXIMIZE_CONVERSION_VALUE"},
         ]
     """
     if not updates:
@@ -202,6 +208,7 @@ def bulk_update_target_roas(
     for u in updates:
         cid = str(u.get("campaign_id", ""))
         roas = float(u.get("target_roas", 0))
+        bidding_type = u.get("bidding_strategy_type", "TARGET_ROAS")
         if not cid:
             raise ToolError(f"Missing campaign_id in update entry: {u}")
         if roas <= 0:
@@ -209,14 +216,17 @@ def bulk_update_target_roas(
 
         campaign = client.get_type("Campaign")
         campaign.resource_name = campaign_service.campaign_path(customer_id, cid)
-        campaign.target_roas.target_roas = roas
 
-        field_mask = client.get_type("FieldMask")
-        field_mask.paths.append("target_roas.target_roas")
+        if bidding_type == "MAXIMIZE_CONVERSION_VALUE":
+            campaign.maximize_conversion_value.target_roas = roas
+            mask = field_mask_pb2.FieldMask(paths=["maximize_conversion_value.target_roas"])
+        else:
+            campaign.target_roas.target_roas = roas
+            mask = field_mask_pb2.FieldMask(paths=["target_roas.target_roas"])
 
         op = client.get_type("CampaignOperation")
         op.update.CopyFrom(campaign)
-        op.update_mask.CopyFrom(field_mask)
+        op.update_mask.CopyFrom(mask)
         operations.append(op)
 
     try:
