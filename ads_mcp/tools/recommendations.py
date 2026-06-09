@@ -175,6 +175,7 @@ def get_search_term_suggestions(
 def bulk_update_target_roas(
     customer_id: str,
     updates: List[Dict[str, Any]],
+    login_customer_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Bulk update Target ROAS for multiple campaigns from a list.
 
@@ -191,6 +192,8 @@ def bulk_update_target_roas(
         customer_id: The Google Ads customer ID (digits only, no hyphens)
         updates: List of dicts with 'campaign_id' (str), 'target_roas' (float),
                  and optional 'bidding_strategy_type' (str)
+        login_customer_id: The manager account (MCC) id to use as login-customer-id header.
+            Required when the customer is only accessible via a manager account.
 
     Example:
         updates = [
@@ -201,7 +204,7 @@ def bulk_update_target_roas(
     if not updates:
         raise ToolError("updates list is empty")
 
-    client = utils.get_googleads_client()
+    client = utils.get_googleads_client(login_customer_id=login_customer_id)
     campaign_service = client.get_service("CampaignService")
 
     operations = []
