@@ -214,19 +214,20 @@ def bulk_update_target_roas(
         if roas <= 0:
             raise ToolError(f"target_roas must be > 0, got {roas} for campaign {cid}")
 
-        campaign = client.get_type("Campaign")
-        campaign.resource_name = campaign_service.campaign_path(customer_id, cid)
+        op = client.get_type("CampaignOperation")
+        op.update.resource_name = campaign_service.campaign_path(customer_id, cid)
 
         if bidding_type == "MAXIMIZE_CONVERSION_VALUE":
-            campaign.maximize_conversion_value.target_roas = roas
-            mask = field_mask_pb2.FieldMask(paths=["maximize_conversion_value.target_roas"])
+            op.update.maximize_conversion_value.target_roas = roas
+            op.update_mask.CopyFrom(
+                field_mask_pb2.FieldMask(paths=["maximize_conversion_value.target_roas"])
+            )
         else:
-            campaign.target_roas.target_roas = roas
-            mask = field_mask_pb2.FieldMask(paths=["target_roas.target_roas"])
+            op.update.target_roas.target_roas = roas
+            op.update_mask.CopyFrom(
+                field_mask_pb2.FieldMask(paths=["target_roas.target_roas"])
+            )
 
-        op = client.get_type("CampaignOperation")
-        op.update.CopyFrom(campaign)
-        op.update_mask.CopyFrom(mask)
         operations.append(op)
 
     try:
