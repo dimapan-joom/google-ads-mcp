@@ -73,3 +73,29 @@ class TestToolSchemas(unittest.IsolatedAsyncioTestCase):
                         f"Tool '{tool.name}' parameter '{param_name}' has default=None, "
                         f"but its JSON schema does not permit 'null'. Schema: {param_schema}",
                     )
+
+    async def test_search_tool_array_parameters(self):
+        """Verifies that search tool's array parameters are correctly typed with top-level 'array'."""
+        tools = await mcp.list_tools()
+        search_tool = next(
+            (t for t in tools if t.name == "search_search"), None
+        )
+        self.assertIsNotNone(search_tool, "search tool not found")
+
+        properties = search_tool.parameters.get("properties", {})
+
+        for param in ["conditions", "orderings"]:
+            schema = properties.get(param)
+            self.assertIsNotNone(
+                schema, f"Parameter '{param}' not found in search tool schema"
+            )
+            self.assertEqual(
+                schema.get("type"),
+                "array",
+                f"Parameter '{param}' must have type 'array'",
+            )
+            self.assertEqual(
+                schema.get("default"),
+                [],
+                f"Parameter '{param}' default must be an empty list",
+            )
