@@ -77,8 +77,11 @@ class TestToolSchemas(unittest.IsolatedAsyncioTestCase):
     async def test_search_tool_array_parameters(self):
         """Verifies that search tool's array parameters are correctly typed with top-level 'array'."""
         tools = await mcp.list_tools()
+        # The namespace prefix is configurable, so match the tool rather than a
+        # name a particular tools_config.yaml happens to produce.
         search_tool = next(
-            (t for t in tools if t.name == "search_search"), None
+            (t for t in tools if t.name == "search" or t.name.endswith("_search")),
+            None,
         )
         self.assertIsNotNone(search_tool, "search tool not found")
 

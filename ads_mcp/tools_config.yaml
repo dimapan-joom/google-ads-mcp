@@ -3,7 +3,21 @@
 # Tools configuration for the Google Ads MCP server.
 # Modify this file to enable/disable tool namespaces or set custom prefixes.
 
+# An empty prefix keeps the original, unprefixed tool names: `search` rather
+# than `search_search`. Two reasons for this fork:
+#
+#   * These names are called by name elsewhere — scheduled digests, skills and
+#     CLAUDE.md all reference `search` and `list_accessible_customers`. A silent
+#     rename would surface as a failure during a scheduled run, not here.
+#   * The tools this fork adds register on the parent server without a prefix,
+#     so prefixing only these three would make the tool list inconsistent.
 namespaces:
-  customers: true
-  search: true
-  metadata: true
+  customers:
+    enabled: true
+    prefix: ""
+  search:
+    enabled: true
+    prefix: ""
+  metadata:
+    enabled: true
+    prefix: ""
