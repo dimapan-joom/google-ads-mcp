@@ -27,7 +27,7 @@ from fastmcp.exceptions import ToolError
 
 
 def search(
-    customer_id: str,
+    customer_id: str | int,
     fields: List[str],
     resource: str,
     conditions: List[str] = [],
@@ -50,7 +50,14 @@ def search(
 
     """
 
-    ga_service = utils.get_googleads_service("GoogleAdsService", login_customer_id=login_customer_id)
+    # Both sides of the merge were needed: upstream's sanitisation, which
+    # tolerates a customer id written with dashes, and this fork's
+    # login_customer_id, without which an MCC sub-account is unreachable.
+    customer_id = utils.clean_customer_id(customer_id)
+
+    ga_service = utils.get_googleads_service(
+        "GoogleAdsService", login_customer_id=login_customer_id
+    )
 
     query_parts = [f"SELECT {','.join(fields)} FROM {resource}"]
 
