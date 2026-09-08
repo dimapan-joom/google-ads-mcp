@@ -41,6 +41,9 @@ if _CLIENT_ID and _CLIENT_SECRET:
             "https://www.googleapis.com/auth/userinfo.email",
             "https://www.googleapis.com/auth/userinfo.profile",
             "https://www.googleapis.com/auth/adwords",
+            # Merchant Center, for the tools in ads_mcp/tools/merchant.py. One
+            # sign-in then covers both, which is why they live in this server.
+            "https://www.googleapis.com/auth/content",
         ],
     }
     if _JWT_SIGNING_KEY:
