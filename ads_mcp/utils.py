@@ -88,14 +88,9 @@ def _create_credentials() -> google.auth.credentials.Credentials:
     return credentials
 
 
-def _get_developer_token() -> str:
-    """Returns the developer token from the environment variable GOOGLE_ADS_DEVELOPER_TOKEN."""
-    dev_token = os.environ.get("GOOGLE_ADS_DEVELOPER_TOKEN")
-    if dev_token is None:
-        raise ValueError(
-            "GOOGLE_ADS_DEVELOPER_TOKEN environment variable not set."
-        )
-    return dev_token
+def _get_developer_token() -> str | None:
+    """Returns the developer token from the environment variable GOOGLE_ADS_DEVELOPER_TOKEN, if set."""
+    return os.environ.get("GOOGLE_ADS_DEVELOPER_TOKEN")
 
 
 def clean_customer_id(customer_id: str | int) -> str:
@@ -114,11 +109,17 @@ def _get_login_customer_id() -> str | None:
 def _get_googleads_client(login_customer_id: str | None = None) -> GoogleAdsClient:
     args = {
         "credentials": _create_credentials(),
-        "developer_token": _get_developer_token(),
         "use_proto_plus": True,
     }
 
-    # Explicit parameter takes priority over environment variable.
+    # If the developer-token is not set, avoid setting None.
+    dev_token = _get_developer_token()
+    if dev_token:
+        args["developer_token"] = dev_token
+
+    # Both sides of the merge were needed here. Upstream stopped passing a None
+    # developer token; this fork lets an explicit argument outrank the
+    # environment, without which an MCC sub-account cannot be reached at all.
     effective_login_customer_id = login_customer_id or _get_login_customer_id()
     if effective_login_customer_id:
         args["login_customer_id"] = effective_login_customer_id

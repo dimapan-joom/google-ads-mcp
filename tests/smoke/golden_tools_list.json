@@ -7,20 +7,139 @@
         }
       },
       "annotations": {
-        "readOnlyHint": true
+        "destructiveHint": false,
+        "readOnlyHint": false
       },
-      "description": "Returns ids of customers directly accessible by the user authenticating the call.\n\nUse this tool first to discover available customer IDs if the user hasn't\nprovided one. Most other tools require a valid customer ID as input.\n\nReturns:\n    List[str]: A list of customer IDs.",
+      "description": "Add negative keywords at campaign level, ad-group level, or to a shared list.\n\nExactly ONE target must be given: campaign_id, ad_group_id, or shared_set_id.\nThis is the core search-term-mining action: exclude wasteful queries you found\nin the search term report. The write is verified by reading the target back,\nand the result includes a ``log_payload`` to record via sheets-log/log_change.\n\n\u26a0\ufe0f Mutating operation. Confirm with the user before calling.",
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "ad_group_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Add as ad-group-level negatives."
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Add as campaign-level negatives."
+          },
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens).",
+            "type": "string"
+          },
+          "keywords": {
+            "description": "List of {\"text\": str, \"match_type\": \"EXACT\"|\"PHRASE\"|\"BROAD\"}.\nmatch_type defaults to PHRASE if omitted.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Manager (MCC) account ID to use as login-customer-id."
+          },
+          "shared_set_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Add to a shared negative-keyword list (find IDs via\nget_shared_library_audit / a shared_set search)."
+          }
+        },
+        "required": [
+          "customer_id",
+          "keywords"
+        ],
         "type": "object"
       },
-      "name": "customers_list_accessible_customers",
+      "name": "add_negative_keywords",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Add Negative Keywords"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Bulk update Target ROAS for multiple campaigns from a list.\n\n\u26a0\ufe0f This is a mutating operation. Confirm with the user before calling.\n\nEach update in the list should have 'campaign_id' and 'target_roas'.\nTarget ROAS is expressed as a decimal (e.g., 3.5 means 350% ROAS).\n\nOptionally pass 'bidding_strategy_type' per entry:\n- 'MAXIMIZE_CONVERSION_VALUE' \u2192 sets maximize_conversion_value.target_roas (PMax)\n- anything else (default) \u2192 sets target_roas.target_roas (Shopping/Search)",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The manager account (MCC) id to use as login-customer-id header.\nRequired when the customer is only accessible via a manager account."
+          },
+          "updates": {
+            "description": "List of dicts with 'campaign_id' (str), 'target_roas' (float),\n     and optional 'bidding_strategy_type' (str)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "customer_id",
+          "updates"
+        ],
+        "type": "object"
+      },
+      "name": "bulk_update_target_roas",
       "outputSchema": {
         "properties": {
           "result": {
             "items": {
-              "type": "string"
+              "additionalProperties": true,
+              "type": "object"
             },
             "type": "array"
           }
@@ -30,7 +149,1504 @@
         ],
         "type": "object",
         "x-fastmcp-wrap-result": true
-      }
+      },
+      "title": "Bulk Update Target Roas"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a Google Ads Experiment (A/B test) to test new ad copy in a campaign.\n\nCreates a draft experiment where the control is the existing campaign and\nthe treatment gets new RSA headlines/descriptions. Traffic is split according\nto traffic_split_percent.\n\n\u26a0\ufe0f This is a mutating operation. Confirm with the user before calling.\n\nNote: After creation the experiment is in DRAFT status. Call start_experiment\nto begin serving it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ad_group_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "If set, only modify ads in this specific ad group"
+          },
+          "campaign_id": {
+            "description": "The campaign to run the experiment on",
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "experiment_name": {
+            "description": "Human-readable name for the experiment",
+            "type": "string"
+          },
+          "new_descriptions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New descriptions to test (2\u20134 items, max 90 chars each)"
+          },
+          "new_headlines": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "New headlines to test (3\u201315 items, max 30 chars each)"
+          },
+          "traffic_split_percent": {
+            "default": 50,
+            "description": "% of traffic going to the treatment arm (default 50)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customer_id",
+          "campaign_id",
+          "experiment_name"
+        ],
+        "type": "object"
+      },
+      "name": "create_ad_variation_experiment",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Create Ad Variation Experiment"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Get a health summary for a Google Ads account.\n\nChecks for common issues: disapproved ads, low quality score keywords,\ncampaigns with no budget, paused campaigns with active budgets.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_account_health",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Account Health"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Audit the asset library for stale and disapproved assets.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens).",
+            "type": "string"
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Manager (MCC) account ID to use as login-customer-id."
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_asset_library_audit",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Asset Library Audit"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Get RSA headline and description asset performance ratings.\n\nReturns assets rated 'LOW' \u2014 these should be replaced.\nAlso returns 'BEST' performers for reference when writing new copy.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "date_range": {
+            "default": "LAST_30_DAYS",
+            "description": "Date range for performance data (default LAST_30_DAYS)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_asset_performance",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Asset Performance"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Get auction insights metrics showing competitive landscape.\n\nReturns search impression share, overlap rate, outranking share \u2014 tells you\nif competitors are becoming more aggressive or if you're losing share.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional list of campaign IDs to filter"
+          },
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "date_range": {
+            "default": "LAST_30_DAYS",
+            "description": "Date range, e.g. LAST_7_DAYS, LAST_30_DAYS (default LAST_30_DAYS)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_auction_insights",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Auction Insights"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "What sells best on Shopping overall, and whether you carry it.\n\nDemand-side rather than account-side: it describes the market, so it is the\none place here that can suggest something you do not already stock.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "by": {
+            "default": "products",
+            "description": "\"products\" for product clusters, or \"brands\".",
+            "type": "string"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Google product category id."
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Restrict to one market, e.g. \"DE\"."
+          },
+          "days": {
+            "default": 30,
+            "description": "Days back from yesterday.",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 100,
+            "description": "Maximum rows.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_best_sellers",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Best Sellers"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Check budget pacing for all active campaigns: actual spend vs expected linear pace.\n\nReturns each campaign's total spend, daily budget, days elapsed, expected spend,\nand pacing status (over/under/on-track).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "month_end": {
+            "description": "Last day of the month in YYYY-MM-DD format",
+            "type": "string"
+          },
+          "month_start": {
+            "description": "First day of the month in YYYY-MM-DD format",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "month_start",
+          "month_end"
+        ],
+        "type": "object"
+      },
+      "name": "get_budget_pacing",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Budget Pacing"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Audit campaign settings for common mistakes.\n\nChecks for: target location mismatches, language not matching geo targets,\nsearch campaigns serving display, missing ad schedules, BROAD match without\ntarget CPA/ROAS, network settings issues.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_campaign_settings_audit",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Campaign Settings Audit"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Show recent account changes \u2014 who changed what (from change_event).\n\nUse this to understand context before acting (don't undo a colleague's work)\nand to correlate metric shifts with edits. Returns a summary by user,\nresource type and operation, plus the most recent change rows.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens).",
+            "type": "string"
+          },
+          "days": {
+            "default": 7,
+            "description": "Lookback window in days (max 30, the API limit).",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 200,
+            "description": "Max rows to return (max 10000).",
+            "type": "integer"
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Manager (MCC) account ID to use as login-customer-id."
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_change_history",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Change History"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Who else appears where you do, and how you rank against them.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "category_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Google product category id."
+          },
+          "country_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Restrict to one market, e.g. \"DE\"."
+          },
+          "days": {
+            "default": 30,
+            "description": "Days back from yesterday.",
+            "type": "integer"
+          },
+          "kind": {
+            "default": "competitors",
+            "description": "\"competitors\", \"top_merchants\" or \"benchmark\".",
+            "type": "string"
+          },
+          "limit": {
+            "default": 100,
+            "description": "Maximum rows.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_competitive_visibility",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Competitive Visibility"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Audit conversion tracking for common problems.\n\nDetects: duplicate conversion actions (same category counted twice),\nconversions with 0 recent data (may be broken), primary vs secondary\nconversion misconfiguration.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_conversion_tracking_audit",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Conversion Tracking Audit"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Diagnose offline / enhanced-conversion upload health.\n\nThis is one of the least-visited corners of an account: uploads can silently\ndegrade (success rate drops, a feed stops sending) without any campaign-level\nsymptom. Checks both the per-client and per-conversion-action upload\nsummaries for: non-healthy status, low success rate, and stale uploads (no\nsuccessful upload in the last few days relative to the freshest one).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens).",
+            "type": "string"
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Manager (MCC) account ID to use as login-customer-id."
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_conversion_upload_health",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Conversion Upload Health"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Find all disapproved ads in a Google Ads account.\n\nReturns a list of disapproved responsive search ads and expanded text ads\nwith their policy topics (reasons for disapproval).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_disapproved_ads",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Disapproved Ads"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Products that cannot serve, grouped by why.\n\nThis is where Shopping and PMax budgets leak: a disapproved product still\ncosts nothing to bid on but silently removes inventory from the auction, so\na campaign can look healthy while half its catalogue is invisible.\n\nReturns both a per-issue tally, which is what to act on, and a sample of\naffected products.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "feed_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Restrict to one feed label, e.g. a single country."
+          },
+          "limit": {
+            "default": 250,
+            "description": "Maximum products to pull. Bounded to keep responses usable.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_disapproved_products",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Disapproved Products"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Audit feeds / business data (asset-set feeds + legacy feeds).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens).",
+            "type": "string"
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Manager (MCC) account ID to use as login-customer-id."
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_feeds_audit",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Feeds Audit"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Get campaign performance broken down by country/region.\n\nHighlights geos with high spend but low conversions \u2014 useful for identifying\nwhere budget is wasted or where to increase bids.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "date_range": {
+            "default": "LAST_30_DAYS",
+            "description": "Date range, e.g. LAST_7_DAYS, LAST_30_DAYS (default LAST_30_DAYS)",
+            "type": "string"
+          },
+          "min_cost_usd": {
+            "default": 10.0,
+            "description": "Minimum spend threshold to include a geo (default $10)",
+            "type": "number"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_geo_performance",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Geo Performance"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Get Google's own optimization recommendations for this account.\n\nIncludes budget increase suggestions, bid adjustments, keyword expansions,\nad copy improvements, and more. These are the same recommendations shown\nin the Google Ads UI under 'Recommendations'.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "types": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional filter by recommendation type, e.g. ['RAISE_TARGET_CPA',\n   'INCREASE_BUDGET', 'MOVE_UNUSED_BUDGET', 'KEYWORD'].\n   If empty, returns all types."
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_google_recommendations",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Google Recommendations"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Find keywords that are cannibalizing each other across campaigns.\n\nIdentifies exact or near-duplicate keywords running in multiple campaigns\nsimultaneously, which causes internal auction competition and inflated CPCs.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "date_range": {
+            "default": "LAST_30_DAYS",
+            "description": "Date range for performance data (default LAST_30_DAYS)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_keyword_cannibalization",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Keyword Cannibalization"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Get historical search volume and CPC metrics for specific keywords from Keyword Planner.\n\nUnlike get_keyword_ideas, this returns metrics for exact keywords you specify\n(not expanded ideas). Useful for checking search volume of known keywords.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "geo_target_constants": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional geo target resource names\ne.g. [\"geoTargetConstants/2276\"] for Germany"
+          },
+          "keywords": {
+            "description": "Exact keywords to get metrics for (e.g. [\"buy shoes online\", \"cheap sneakers\"])",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional language resource name e.g. \"languageConstants/1001\" for German"
+          }
+        },
+        "required": [
+          "customer_id",
+          "keywords"
+        ],
+        "type": "object"
+      },
+      "name": "get_keyword_historical_metrics",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Keyword Historical Metrics"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Get keyword ideas and search volume data from Google Keyword Planner.\n\nUses the KeywordPlanIdeaService to generate keyword ideas based on seed keywords.\nReturns search volume, competition level, and CPC bid estimates.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "geo_target_constants": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional list of geo target resource names\ne.g. [\"geoTargetConstants/2616\"] for Germany.\nCommon: 2616=Germany, 2250=France, 2724=Spain, 2380=Italy,\n        2616=Germany, 2528=Netherlands, 2616=Germany, 2076=Brazil,\n        2826=UK, 2036=Australia, 2616=Germany, 2250=France"
+          },
+          "keywords": {
+            "description": "List of seed keywords to base ideas on (e.g. [\"running shoes\", \"sneakers\"])",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional BCP-47 language code resource name\ne.g. \"languageConstants/1001\" for German, \"languageConstants/1000\" for English"
+          },
+          "page_size": {
+            "default": 50,
+            "description": "Max number of results to return (default 50, max 1000)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customer_id",
+          "keywords"
+        ],
+        "type": "object"
+      },
+      "name": "get_keyword_ideas",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Keyword Ideas"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "One-shot health report across every shared-library / rarely-visited area.\n\nRuns get_shared_library_audit, get_feeds_audit, get_asset_library_audit,\nget_conversion_upload_health and get_stale_config_audit, then consolidates\ntheir findings with an overall severity breakdown. Use this for a quick\n\"what has gone stale in this account?\" sweep.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens).",
+            "type": "string"
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Manager (MCC) account ID to use as login-customer-id."
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_library_health",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Library Health"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Find text creatives (RSA) with low performance based on CTR and impressions.\n\nReturns responsive search ads that have enough impressions to be statistically\nmeaningful but are underperforming on CTR. Also includes ad strength rating.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "date_range": {
+            "default": "LAST_30_DAYS",
+            "description": "Date range to use, e.g. LAST_30_DAYS, LAST_7_DAYS (default LAST_30_DAYS)",
+            "type": "string"
+          },
+          "max_ctr_percent": {
+            "default": 1.0,
+            "description": "CTR threshold in percent \u2014 ads below this are flagged (default 1.0%)",
+            "type": "number"
+          },
+          "min_impressions": {
+            "default": 1000,
+            "description": "Minimum impressions to consider (default 1000)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_low_performing_ads",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Low Performing Ads"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Find keywords with low Quality Score and diagnose the likely cause.\n\nLow QS keywords waste budget and inflate CPCs. This tool surfaces them with\ncomponent scores (expected CTR, ad relevance, landing page) so you know\nexactly what to fix.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "date_range": {
+            "default": "LAST_30_DAYS",
+            "description": "Date range for impression filter (default LAST_30_DAYS)",
+            "type": "string"
+          },
+          "max_qs": {
+            "default": 4,
+            "description": "Maximum Quality Score to flag (default 4 \u2014 flags 1 through 4)",
+            "type": "integer"
+          },
+          "min_impressions": {
+            "default": 100,
+            "description": "Minimum impressions to include (default 100)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_low_quality_score_keywords",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Low Quality Score Keywords"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Account-level problems: policy warnings, suspensions, verification gaps.\n\nThese outrank product issues. A suspended account serves nothing, however\nhealthy the feed looks.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id, from list_merchant_accounts.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_merchant_account_issues",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Merchant Account Issues"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "How much of the catalogue can actually serve, by status and feed label.\n\nUse this before reaching for bids: if the eligible share has dropped, the\nproblem is the feed, not the campaign.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_merchant_product_summary",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Merchant Product Summary"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Traffic that is not tied to a single product, such as store visits.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "days": {
+            "default": 30,
+            "description": "Days back from yesterday.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_non_product_performance",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Non Product Performance"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Your price against the benchmark other merchants charge for the same item.\n\nWhere Shopping is lost before the bid: an offer priced well above the\nbenchmark can win the auction and still lose the click.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "days": {
+            "default": 7,
+            "description": "Days back from yesterday.",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 250,
+            "description": "Maximum rows.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_price_competitiveness",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Price Competitiveness"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Google's suggested prices, with the uplift it predicts for each.\n\nRead this as a hypothesis to test, not an instruction: the prediction\nassumes everything else stays as it is.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "limit": {
+            "default": 250,
+            "description": "Maximum rows.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_price_suggestions",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Price Suggestions"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One product's full processed state, including every issue on it.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "product_name": {
+            "description": "The product id, e.g. \"online~en~DE~sku123\", or a full\nresource name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "product_name"
+        ],
+        "type": "object"
+      },
+      "name": "get_product",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Product"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Clicks, impressions and conversions per product.\n\nThe Merchant Center side of what a Shopping or PMax campaign is doing, at a\ngranularity Google Ads does not report: the individual offer.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "days": {
+            "default": 30,
+            "description": "Days back from yesterday. Performance views require a date range.",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 250,
+            "description": "Maximum rows.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_product_performance",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Product Performance"
     },
     {
       "_meta": {
@@ -55,11 +1671,493 @@
         ],
         "type": "object"
       },
-      "name": "metadata_get_resource_metadata",
+      "name": "get_resource_metadata",
       "outputSchema": {
         "additionalProperties": true,
         "type": "object"
-      }
+      },
+      "title": "Get Resource Metadata"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Analyze search terms to suggest new keywords to add and irrelevant terms to exclude.\n\n- New keyword suggestions: search terms that drove conversions but aren't keywords yet\n- Negative keyword suggestions: search terms that spent money but drove 0 conversions",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "date_range": {
+            "default": "LAST_30_DAYS",
+            "description": "Date range to analyze (default LAST_30_DAYS)",
+            "type": "string"
+          },
+          "min_conversions_for_keyword": {
+            "default": 1.0,
+            "description": "Min conversions for a term to be suggested as keyword (default 1.0)",
+            "type": "number"
+          },
+          "min_cost_for_negative_usd": {
+            "default": 5.0,
+            "description": "Min spend (USD) for a term to be suggested as negative (default $5)",
+            "type": "number"
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_search_term_suggestions",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Search Term Suggestions"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Audit the Google Ads \"Shared Library\" for orphaned and stale objects.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens).",
+            "type": "string"
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Manager (MCC) account ID to use as login-customer-id.\nRequired for sub-accounts only reachable via a manager account."
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_shared_library_audit",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Shared Library Audit"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Get spend, CPC, clicks, impressions broken down by hour of day for a given date.\n\nUseful for hourly monitoring \u2014 identify hours where spend spikes or CPC is abnormal.\nResults are grouped by campaign and hour.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional list of campaign IDs to filter. If empty, returns all."
+          },
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "date": {
+            "description": "Date in YYYY-MM-DD format (use today's date for real-time monitoring)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "date"
+        ],
+        "type": "object"
+      },
+      "name": "get_spend_cpc_by_hour",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Get Spend Cpc By Hour"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Audit rarely-cleaned config: bidding signals & zombie experiments.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens).",
+            "type": "string"
+          },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Manager (MCC) account ID to use as login-customer-id."
+          }
+        },
+        "required": [
+          "customer_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_stale_config_audit",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Stale Config Audit"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Generate a weekly performance digest comparing this week vs last week.\n\nReturns overall account metrics, top campaigns by spend, week-over-week\nchanges, and a list of campaigns that significantly degraded or improved.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "last_week_end": {
+            "description": "End of comparison period in YYYY-MM-DD",
+            "type": "string"
+          },
+          "last_week_start": {
+            "description": "Start of comparison period in YYYY-MM-DD",
+            "type": "string"
+          },
+          "this_week_end": {
+            "description": "End of current period in YYYY-MM-DD",
+            "type": "string"
+          },
+          "this_week_start": {
+            "description": "Start of current period in YYYY-MM-DD",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "this_week_start",
+          "this_week_end",
+          "last_week_start",
+          "last_week_end"
+        ],
+        "type": "object"
+      },
+      "name": "get_weekly_digest",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Get Weekly Digest"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true
+      },
+      "description": "Returns ids of customers directly accessible by the user authenticating the call.\n\nUse this tool first to discover available customer IDs if the user hasn't\nprovided one. Most other tools require a valid customer ID as input.\n\nReturns:\n    List[str]: A list of customer IDs.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_accessible_customers",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "List Accessible Customers"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "The feeds behind the catalogue, and how each is fed.\n\nA product that vanished usually vanished from a feed. This says which feeds\nexist and how they arrive, which is where to look next.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "list_data_sources",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "List Data Sources"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Lists the Merchant Center accounts your Google sign-in can reach.\n\nStart here: the other Merchant Center tools need an account id, and it is\nnot the same number as a Google Ads customer id.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list_merchant_accounts",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "List Merchant Accounts"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Promotions configured on the account.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "limit": {
+            "default": 100,
+            "description": "Maximum rows.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "list_promotions",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "List Promotions"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Sub-accounts under a multi-client Merchant Center account.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "The advanced (parent) account id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "name": "list_sub_accounts",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "List Sub Accounts"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Calls any Merchant API endpoint directly.\n\nThe escape hatch. The shaped tools above cover the sub-APIs whose paths are\ndocumented; this reaches anything they do not, and works around a path that\nturns out to be wrong without waiting for a new release.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "JSON body for POST."
+          },
+          "method": {
+            "default": "GET",
+            "description": "\"GET\" or \"POST\".",
+            "type": "string"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Query parameters for GET."
+          },
+          "path": {
+            "description": "Path after the host, e.g. \"/accounts/v1/accounts/123/users\".",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "merchant_api_request",
+      "title": "Merchant Api Request"
     },
     {
       "_meta": {
@@ -112,6 +2210,18 @@
             "default": null,
             "description": "The maximum number of rows to return"
           },
+          "login_customer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The manager account (MCC) id to use as login-customer-id header.\nRequired when querying sub-accounts that are only accessible via a manager account.\nIf not provided, falls back to the GOOGLE_ADS_LOGIN_CUSTOMER_ID environment variable."
+          },
           "orderings": {
             "default": [],
             "description": "How the data is ordered",
@@ -132,7 +2242,7 @@
         ],
         "type": "object"
       },
-      "name": "search_search",
+      "name": "search",
       "outputSchema": {
         "properties": {
           "result": {
@@ -148,7 +2258,195 @@
         ],
         "type": "object",
         "x-fastmcp-wrap-result": true
-      }
+      },
+      "title": "Search"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Runs a raw Merchant Center Query Language query.\n\nThe escape hatch, for anything the shaped tools above do not cover. Views\ninclude product_view, price_competitiveness_product_view, best_sellers and\nthe performance views.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "description": "Merchant Center account id.",
+            "type": "string"
+          },
+          "limit": {
+            "default": 250,
+            "description": "Maximum rows to return.",
+            "type": "integer"
+          },
+          "query": {
+            "description": "An MCQL query, e.g. \"SELECT offer_id, title FROM product_view\".",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_merchant_report",
+      "outputSchema": {
+        "properties": {
+          "result": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object",
+        "x-fastmcp-wrap-result": true
+      },
+      "title": "Search Merchant Report"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Enable or pause a campaign.\n\n\u26a0\ufe0f This is a mutating operation. Confirm with the user before calling.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "description": "The numeric ID of the campaign",
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "status": {
+            "description": "'ENABLED' to enable or 'PAUSED' to pause",
+            "enum": [
+              "ENABLED",
+              "PAUSED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "campaign_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "name": "set_campaign_status",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Set Campaign Status"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Update the daily budget of a campaign budget.\n\n\u26a0\ufe0f This is a mutating operation. Confirm with the user before calling.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_budget_id": {
+            "description": "The numeric ID of the campaign budget",
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "new_amount_micros": {
+            "description": "New daily budget in micros (1 USD = 1_000_000 micros)",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "customer_id",
+          "campaign_budget_id",
+          "new_amount_micros"
+        ],
+        "type": "object"
+      },
+      "name": "update_campaign_budget",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Update Campaign Budget"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Update the headlines and descriptions of a Responsive Search Ad.\n\n\u26a0\ufe0f This is a mutating operation. Confirm with the user before calling.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ad_id": {
+            "description": "The numeric ID of the ad to update",
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "The Google Ads customer ID (digits only, no hyphens)",
+            "type": "string"
+          },
+          "descriptions": {
+            "description": "List of description texts (2\u20134 items, max 90 chars each)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "headlines": {
+            "description": "List of headline texts (3\u201315 items, max 30 chars each)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "customer_id",
+          "ad_id",
+          "headlines",
+          "descriptions"
+        ],
+        "type": "object"
+      },
+      "name": "update_responsive_search_ad",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Update Responsive Search Ad"
     }
   ]
 }
