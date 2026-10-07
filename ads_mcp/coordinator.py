@@ -22,7 +22,7 @@ of the server.
 import os
 from typing import Any
 from fastmcp import FastMCP
-from fastmcp.server.auth.providers.google import GoogleProvider
+from ads_mcp.google_auth import RetrySafeGoogleProvider
 from ads_mcp.auth_storage import create_client_storage
 
 _CLIENT_ID = os.environ.get("GOOGLE_ADS_MCP_OAUTH_CLIENT_ID")
@@ -51,7 +51,7 @@ if _CLIENT_ID and _CLIENT_SECRET:
     if client_storage is not None:
         provider_kwargs["client_storage"] = client_storage
 
-    auth = GoogleProvider(**provider_kwargs)
+    auth = RetrySafeGoogleProvider(**provider_kwargs)
     mcp = FastMCP("Google Ads Server", auth=auth)
 else:
     mcp = FastMCP("Google Ads Server")

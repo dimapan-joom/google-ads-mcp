@@ -174,7 +174,7 @@ class TestAuthConfig(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_client_storage()
 
-    @patch("fastmcp.server.auth.providers.google.GoogleProvider")
+    @patch("ads_mcp.google_auth.RetrySafeGoogleProvider")
     def test_coordinator_init_with_jwt_signing_key_and_storage(
         self, mock_provider
     ):
