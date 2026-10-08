@@ -22,6 +22,8 @@ of the server.
 import os
 from typing import Any
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_access_token
+from mcp.types import ToolAnnotations
 from ads_mcp.google_auth import RetrySafeGoogleProvider
 from ads_mcp.auth_storage import create_client_storage
 
@@ -55,6 +57,40 @@ if _CLIENT_ID and _CLIENT_SECRET:
     mcp = FastMCP("Google Ads Server", auth=auth)
 else:
     mcp = FastMCP("Google Ads Server")
+
+
+@mcp.tool(
+    name="get_profile",
+    output_schema={
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "name": {"type": "string"},
+            "email": {"type": "string"},
+        },
+        "required": ["id"],
+        "additionalProperties": False,
+    },
+    annotations=ToolAnnotations(readOnlyHint=True),
+    meta={"openai/profile": True},
+)
+def get_profile() -> dict[str, str]:
+    """Return the Google identity attached to the current MCP connection."""
+    token = get_access_token()
+    if token is None:
+        raise RuntimeError("No authenticated Google profile is available")
+
+    claims = token.claims or {}
+    profile_id = str(claims.get("sub") or token.subject or "").strip()
+    if not profile_id:
+        raise RuntimeError("Google did not return a stable profile identifier")
+
+    profile = {"id": profile_id}
+    for field in ("name", "email"):
+        value = str(claims.get(field) or "").strip()
+        if value:
+            profile[field] = value
+    return profile
 
 
 def initialize_and_mount_tools(parent_mcp: FastMCP) -> None:

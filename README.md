@@ -125,6 +125,14 @@ alongside the server: `pip install py-key-value-aio[redis]` and
 
 Once this is enabled, you can authenticate to the API through your MCP client.
 
+The HTTP server supports multiple Google identities at the same time. Add the
+same MCP URL as separate named connections in a client that isolates OAuth
+credentials per connection, then sign each connection in with the intended
+Google account. The authenticated, read-only `get_profile` tool returns the
+stable Google subject plus the account name and email so compatible clients can
+label and select the correct connection. Google Ads customer accounts available
+inside each connection still follow that Google identity's own permissions.
+
 When these variables are set, the server automatically switches to the `streamable-http` transport (SSE/HTTP) instead of `stdio`.
 
 You will need to run the server as a separate process and configure your MCP client to connect to the SSE endpoint (e.g., `http://localhost:8080/mcp`).
