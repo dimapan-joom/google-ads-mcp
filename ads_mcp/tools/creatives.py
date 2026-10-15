@@ -548,6 +548,15 @@ class _Batch:
             raise ToolError(
                 "Nothing to change: the request produced no operations"
             )
+        # Google checks a Performance Max asset group's minimums against the
+        # assets that exist when each link is processed, so every new asset
+        # has to come before the asset group and its links.
+        order = sorted(
+            range(len(self.operations)),
+            key=lambda i: "asset_operation" not in self.operations[i],
+        )
+        self.operations = [self.operations[i] for i in order]
+        self.labels = [self.labels[i] for i in order]
         client = utils.get_googleads_client(
             login_customer_id=self.login_customer_id
         )
@@ -592,6 +601,14 @@ class _Batch:
             key = f"{kind.removesuffix('_operation')}.{verb}"
             counts[key] = counts.get(key, 0) + 1
         return counts
+
+
+def _name_for(batch: "_Batch", names: List[str], label_prefix: str) -> str:
+    """Resource name returned for the first operation with this label."""
+    for label, name in zip(batch.labels, names):
+        if label.startswith(label_prefix):
+            return name
+    return ""
 
 
 def normalize_ref(ref: Any, slot: str = "") -> Dict[str, Any]:
@@ -898,8 +915,8 @@ def _read_asset_groups(
                asset_group_listing_group_filter.id,
                asset_group_listing_group_filter.type,
                asset_group_listing_group_filter.listing_source,
-               asset_group_listing_group_filter.case_value,
-               asset_group_listing_group_filter.parent_listing_group_filter
+               asset_group_listing_group_filter.parent_listing_group_filter,
+               {_case_value_fields()}
         FROM asset_group_listing_group_filter
         WHERE asset_group_listing_group_filter.asset_group IN ({group_filter})
         """,
@@ -921,6 +938,27 @@ def _read_asset_groups(
         groups[node.asset_group]["listing_group_filters"].append(entry)
 
     return list(groups.values())
+
+
+def _leaf_fields(descriptor: Any, prefix: str) -> List[str]:
+    """Selectable leaf paths of a message: GAQL refuses composite fields."""
+    fields = []
+    for field in descriptor.fields:
+        path = f"{prefix}.{field.name}"
+        if field.message_type is None:
+            fields.append(path)
+        elif not field.is_repeated:
+            fields.extend(_leaf_fields(field.message_type, path))
+    return fields
+
+
+def _case_value_fields() -> str:
+    client = utils.get_googleads_client()
+    dimension = client.get_type("ListingGroupFilterDimension")
+    descriptor = type(dimension).pb(dimension).DESCRIPTOR
+    return ", ".join(
+        _leaf_fields(descriptor, "asset_group_listing_group_filter.case_value")
+    )
 
 
 def _ad_select_fields(
@@ -1101,7 +1139,10 @@ def get_campaign_creatives(
     rows = _link_rows(
         customer_id,
         "campaign_asset",
-        f"campaign.id = {_cid(campaign_id)}",
+        # GAQL wants a filtered field of another resource in SELECT too, so
+        # filter on the link's own field.
+        f"campaign_asset.campaign = "
+        f"'customers/{customer_id}/campaigns/{_cid(campaign_id)}'",
         login_customer_id,
     )
     result["campaign_assets"] = _grouped_assets(rows, "campaign_asset")
@@ -1113,7 +1154,8 @@ def get_campaign_creatives(
         return result
 
     where = (
-        f"campaign.id = {_cid(campaign_id)} AND ad_group.status != 'REMOVED'"
+        f"ad_group.campaign = 'customers/{customer_id}/campaigns/"
+        f"{_cid(campaign_id)}' AND ad_group.status != 'REMOVED'"
     )
     if ad_group_ids:
         where += (
@@ -1216,9 +1258,14 @@ def _check_group_limits(
 
 
 def _add_listing_tree(
-    batch: _Batch, group_rn: str, nodes: List[Dict[str, Any]], group_temp: bool
-) -> List[str]:
-    """Adds listing group filter creates; returns notes about what was skipped."""
+    batch: _Batch, group_rn: str, nodes: List[Dict[str, Any]]
+) -> None:
+    """Adds listing group filter creates, parents before children.
+
+    Children address their parent as "<asset group id>~<filter id>"; Google
+    accepts temporary IDs on both sides, so a new group and its whole tree go
+    in one request.
+    """
     by_id = {node["id"]: node for node in nodes}
     order: List[Dict[str, Any]] = []
     seen: set = set()
@@ -1234,12 +1281,6 @@ def _add_listing_tree(
 
     for node in nodes:
         visit(node)
-    if len(order) > 1 and group_temp:
-        # A child references its parent by "<asset group id>~<filter id>"; with
-        # a temporary asset group ID that composite cannot be addressed, so a
-        # multi-node tree is written by a follow-up request (see notes).
-        return ["listing_tree_deferred"]
-
     temp_ids: Dict[str, int] = {}
     group_id = group_rn.rsplit("/", 1)[-1]
     customer = batch.customer_id
@@ -1266,7 +1307,6 @@ def _add_listing_tree(
             {"create": payload},
             f"listing_group:{node['type']}",
         )
-    return []
 
 
 def _build_asset_group(
@@ -1368,7 +1408,6 @@ def _build_asset_group(
         )
 
     tree = spec.get("listing_group_filters")
-    deferred: List[Dict[str, Any]] = []
     if campaign.get("merchant_id"):
         if tree in (None, [], "ALL"):
             tree = [
@@ -1379,36 +1418,8 @@ def _build_asset_group(
                 }
             ]
         if tree != "NONE":
-            if _add_listing_tree(batch, group_rn, tree, group_temp=True):
-                deferred = tree
-                notes.append(
-                    "The product (listing group) tree has several nodes; it is written by "
-                    "a second request right after the asset group is created. In "
-                    "validate_only mode that second request cannot be validated yet."
-                )
-    return {
-        "resource_name": group_rn,
-        "deferred_listing_tree": deferred,
-        "assets": assets,
-    }
-
-
-def _write_deferred_tree(
-    customer_id: str,
-    login_customer_id: Optional[str],
-    group_rn: str,
-    tree: List[Dict[str, Any]],
-) -> Dict[str, Any]:
-    batch = _Batch(customer_id, login_customer_id)
-    _add_listing_tree(batch, group_rn, tree, group_temp=False)
-    try:
-        batch.execute(validate_only=False)
-        return {"listing_tree": "written", "nodes": len(tree)}
-    except ToolError as ex:
-        return {
-            "listing_tree": "FAILED — the asset group exists without its product tree",
-            "error": str(ex),
-        }
+            _add_listing_tree(batch, group_rn, tree)
+    return {"resource_name": group_rn, "assets": assets}
 
 
 def _plan_view(assets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[str]]:
@@ -1496,17 +1507,7 @@ def create_asset_group(
         "warnings": warnings,
     }
     if not validate_only:
-        group_rn = names[0]
-        extra["asset_group"] = group_rn
-        if built["deferred_listing_tree"]:
-            extra.update(
-                _write_deferred_tree(
-                    customer_id,
-                    login_customer_id,
-                    group_rn,
-                    built["deferred_listing_tree"],
-                )
-            )
+        extra["asset_group"] = _name_for(batch, names, "asset_group:")
     return _result(
         batch,
         validate_only,
@@ -1681,16 +1682,7 @@ def copy_asset_group(
         "warnings": warnings,
     }
     if not validate_only:
-        extra["asset_group"] = names[0]
-        if built["deferred_listing_tree"]:
-            extra.update(
-                _write_deferred_tree(
-                    target_customer,
-                    login_customer_id,
-                    names[0],
-                    built["deferred_listing_tree"],
-                )
-            )
+        extra["asset_group"] = _name_for(batch, names, "asset_group:")
     return _result(
         batch,
         validate_only,
@@ -2139,7 +2131,7 @@ def create_ad(
     names = batch.execute(validate_only)
     extra: Dict[str, Any] = {}
     if not validate_only:
-        extra["ad"] = names[-1]
+        extra["ad"] = _name_for(batch, names, "ad:")
     return _result(
         batch,
         validate_only,
@@ -2340,7 +2332,11 @@ def link_assets(
     field_type = field_type.upper()
 
     if parent:
-        where = f"{parent}.id = {_cid(target_id)} AND {resource}.field_type = '{field_type}'"
+        prefix = "campaigns" if parent == "campaign" else "adGroups"
+        where = (
+            f"{resource}.{parent} = 'customers/{customer_id}/{prefix}/"
+            f"{_cid(target_id)}' AND {resource}.field_type = '{field_type}'"
+        )
     else:
         where = f"{resource}.field_type = '{field_type}'"
     existing_rows = _link_rows(customer_id, resource, where, login_customer_id)

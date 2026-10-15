@@ -90,6 +90,23 @@ class CreativesTestBase(unittest.TestCase):
     def kinds(ops):
         return [next(iter(op)) for op in ops]
 
+    @staticmethod
+    def first(ops, kind):
+        return next(op[kind] for op in ops if kind in op)
+
+    def assert_assets_first(self, ops):
+        """New assets precede everything else: Google counts a PMax group's
+        assets as the links are processed."""
+        kinds = self.kinds(ops)
+        seen_other = False
+        for kind in kinds:
+            if kind != "asset_operation":
+                seen_other = True
+            else:
+                self.assertFalse(
+                    seen_other, f"asset create after other ops: {kinds}"
+                )
+
 
 class AssetGroupTest(CreativesTestBase):
     def spec(self, **extra):
@@ -126,8 +143,8 @@ class AssetGroupTest(CreativesTestBase):
 
         ops, request = self.sent()
         self.assertTrue(request["validate_only"])
-        self.assertEqual(self.kinds(ops)[0], "asset_group_operation")
-        group = ops[0]["asset_group_operation"]["create"]
+        self.assert_assets_first(ops)
+        group = self.first(ops, "asset_group_operation")["create"]
         self.assertEqual(group["status"], "PAUSED")
         self.assertEqual(
             group["campaign"], f"customers/{CUSTOMER}/campaigns/111"
@@ -194,6 +211,50 @@ class AssetGroupTest(CreativesTestBase):
         self.assertEqual(len(filters), 1)
         self.assertEqual(filters[0]["type_"], "UNIT_INCLUDED")
         self.assertEqual(filters[0]["listing_source"], "SHOPPING")
+
+    def test_multi_node_tree_goes_in_the_same_request(self):
+        retail = {**PMAX, "merchant_id": "555"}
+        tree = [
+            {"id": "1", "type": "SUBDIVISION", "listing_source": "SHOPPING"},
+            {
+                "id": "3",
+                "type": "UNIT_EXCLUDED",
+                "listing_source": "SHOPPING",
+                "case_value": {"product_brand": {"value": "acme"}},
+                "parent_id": "1",
+            },
+            {
+                "id": "2",
+                "type": "UNIT_INCLUDED",
+                "listing_source": "SHOPPING",
+                "case_value": {"product_brand": {}},
+                "parent_id": "1",
+            },
+        ]
+        with mock.patch.object(
+            creatives, "_campaign_info", return_value=retail
+        ):
+            creatives.create_asset_group(
+                CUSTOMER, "111", self.spec(listing_group_filters=tree)
+            )
+        ops, _ = self.sent()
+        group_rn = self.first(ops, "asset_group_operation")["create"][
+            "resource_name"
+        ]
+        group_id = group_rn.rsplit("/", 1)[-1]
+        nodes = [
+            op["asset_group_listing_group_filter_operation"]["create"]
+            for op in ops
+            if "asset_group_listing_group_filter_operation" in op
+        ]
+        self.assertEqual(len(nodes), 3)
+        root = nodes[0]["resource_name"]
+        self.assertTrue(
+            root.endswith(f"/{group_id}~" + root.rsplit("~", 1)[-1])
+        )
+        self.assertTrue(group_id.startswith("-"))
+        for child in nodes[1:]:
+            self.assertEqual(child["parent_listing_group_filter"], root)
 
     def test_brand_guidelines_move_brand_assets_out(self):
         branded = {**PMAX, "brand_guidelines_enabled": True}
@@ -320,7 +381,8 @@ class AssetGroupTest(CreativesTestBase):
                 },
             )
         ops, _ = self.sent()
-        group = ops[0]["asset_group_operation"]["create"]
+        self.assert_assets_first(ops)
+        group = self.first(ops, "asset_group_operation")["create"]
         self.assertTrue(group["name"].startswith("Source copy"))
         self.assertEqual(group["status"], "PAUSED")
         links = [
@@ -432,7 +494,8 @@ class AssetGroupTest(CreativesTestBase):
         ops, _ = self.sent()
         kinds = self.kinds(ops)
         self.assertEqual(
-            ops[0]["asset_group_operation"]["update_mask"], "finalUrls"
+            self.first(ops, "asset_group_operation")["update_mask"],
+            "finalUrls",
         )
         removes = [
             op["asset_group_asset_operation"]["remove"]
@@ -573,9 +636,8 @@ class AdTest(CreativesTestBase):
                 pause_source=True,
             )
         ops, _ = self.sent()
-        rsa = ops[0]["ad_group_ad_operation"]["create"]["ad"][
-            "responsive_search_ad"
-        ]
+        ad_ops = [op["ad_group_ad_operation"] for op in ops]
+        rsa = ad_ops[0]["create"]["ad"]["responsive_search_ad"]
         self.assertEqual(
             rsa["headlines"][0], {"text": "A", "pinned_field": "HEADLINE_1"}
         )
@@ -583,7 +645,7 @@ class AdTest(CreativesTestBase):
             [d["text"] for d in rsa["descriptions"]], ["New D1", "New D2"]
         )
         self.assertEqual(rsa["path1"], "sale")
-        pause = ops[1]["ad_group_ad_operation"]
+        pause = ad_ops[1]
         self.assertEqual(
             pause["update"],
             {
@@ -661,7 +723,7 @@ class LinkAssetsTest(CreativesTestBase):
             ],
             "Free delivery",
         )
-        self.assertIn("customer_asset_operation", ops[1])
+        self.assertIn("customer_asset_operation", ops[2])
 
         with mock.patch.object(creatives, "_link_rows", return_value=[]):
             creatives.link_assets(
@@ -680,7 +742,7 @@ class LinkAssetsTest(CreativesTestBase):
             )
         ops, _ = self.sent()
         self.assertEqual(
-            ops[1]["ad_group_asset_operation"]["create"]["ad_group"],
+            self.first(ops, "ad_group_asset_operation")["create"]["ad_group"],
             f"customers/{CUSTOMER}/adGroups/55",
         )
 
