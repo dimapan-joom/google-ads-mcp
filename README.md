@@ -18,6 +18,36 @@ to provide several
 - `list_accessible_customers`: Returns ids of customers directly accessible
   by the user authenticating the call.
 
+### Creatives and assets (this fork)
+
+One portable "creative spec" is shared by reading and writing, so copying a
+creative is read → edit → write. Works for every campaign type, Performance Max
+included.
+
+- `get_campaign_creatives`: everything creative in a campaign — campaign-level
+  assets, PMax asset groups (assets by field type, final URLs, search themes,
+  audiences, product tree) or ad groups with their assets and ads. Each asset
+  carries its resource name and content (text, image URL and size, YouTube ID).
+- `create_asset_group`: a PMax asset group from scratch — texts, images from
+  URLs (routed by aspect ratio via `images`), YouTube videos, CTA, signals,
+  "all products" filter for retail campaigns.
+- `copy_asset_group`: copy a group, replacing any field types (headlines,
+  descriptions, images, videos, URLs), into the same or another campaign or
+  account.
+- `update_asset_group`: replace / add / remove creatives in an existing group.
+- `create_ad` / `copy_ad`: RSA, responsive display, Demand Gen (multi-asset,
+  video, carousel, product), video responsive and app ads; `copy_ad` with
+  `pause_source` swaps the creatives of an ad that cannot be edited in place.
+- `link_assets`: sitelinks, callouts, structured snippets, calls, promotions,
+  prices, business name, logos and images at account, campaign or ad-group
+  level.
+- `upload_assets`: standalone assets to reuse by ID.
+
+Every write is one atomic `GoogleAdsService.Mutate`, defaults to
+`validate_only=true` (Google validates the whole request, nothing is written)
+and creates new groups and ads `PAUSED`. Videos must already be on YouTube: the
+Google Ads API links YouTube videos, it does not upload video files.
+
 ### Configuring and Namespacing Tools
 
 The Google Ads MCP server uses the `tools_config.yaml` to let you selectively enable or disable individual tools or tool categories (namespaces) and customize their namespace prefixes.
