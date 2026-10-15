@@ -10,7 +10,10 @@ license = "Apache-2.0"
 dependencies = [
     "google-ads>=32.0.0",
     "mcp[cli]>=1.2.0",
-    "fastmcp>=4.0.3"
+    "fastmcp>=4.0.3",
+    # Image size and format for creative uploads (ads_mcp/tools/creatives.py).
+    "pillow>=10.0",
+    "requests>=2.31",
 ]
 
 description = "MCP Server for Google Ads, depends on Google Ads API."
