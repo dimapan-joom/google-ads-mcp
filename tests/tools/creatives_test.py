@@ -19,6 +19,7 @@ version), so a wrong field or enum name fails here, not in production; only the
 network call is mocked.
 """
 
+import importlib
 import struct
 import unittest
 from unittest import mock
@@ -940,6 +941,31 @@ class YouTubeUploadTest(CreativesTestBase):
         with mock.patch.object(creatives, "_query", return_value=[]):
             with self.assertRaisesRegex(ToolError, "No YouTube video upload"):
                 creatives.get_youtube_video_upload_status(CUSTOMER, "78")
+
+    def test_fixes_library_upload_error_check(self):
+        service = GoogleAdsClient.get_service(
+            self.client, "YouTubeVideoUploadService"
+        )
+        transport = importlib.import_module(
+            type(service).__module__.rsplit(".", 1)[0]
+            + ".transports.resumable_upload"
+        )
+        mock.patch.object(
+            transport,
+            "raise_formatted_for_status",
+            transport.raise_formatted_for_status,
+        ).start()
+        creatives._fix_resumable_upload_errors(service)
+        creatives._fix_resumable_upload_errors(service)  # Idempotent.
+        ok = requests.Response()
+        ok.status_code = 200
+        transport.raise_formatted_for_status(ok)
+        failed = requests.Response()
+        failed.status_code = 403
+        failed._content = b'{"error": {"message": "denied"}}'
+        failed.request = requests.Request("POST", "https://x").prepare()
+        with self.assertRaises(creatives.GoogleAdsException):
+            transport.raise_formatted_for_status(failed)
 
 
 class HelpersTest(unittest.TestCase):

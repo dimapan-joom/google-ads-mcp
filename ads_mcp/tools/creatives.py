@@ -62,6 +62,8 @@ sheets-log/log_change.
 """
 
 import base64
+import importlib
+import inspect
 import io
 import os
 import re
@@ -2460,6 +2462,37 @@ _DRIVE_URL = re.compile(
     r"(?:file/d/([A-Za-z0-9_-]+)|(?:open|uc)\?(?:.*&)?id=([A-Za-z0-9_-]+))"
 )
 _UPLOAD_RN = re.compile(r"^customers/(\d+)/youTubeVideoUploads/(\d+)$")
+_SERVICE_MODULE = re.compile(r"^google\.ads\.googleads\.(v\d+)\.services\.")
+
+
+def _fix_resumable_upload_errors(service: Any) -> None:
+    """Works around a google-ads (33.0.0, 34.0.0) bug in video uploads.
+
+    The upload transport calls errors.raise_formatted_for_status(response),
+    but that helper also requires the API version, so every upload dies with
+    a TypeError, even on success. Bind the version of this service.
+    """
+    module_name = type(service).__module__
+    match = _SERVICE_MODULE.match(module_name)
+    if not match:
+        return
+    try:
+        transport = importlib.import_module(
+            module_name.rsplit(".", 1)[0] + ".transports.resumable_upload"
+        )
+    except ImportError:
+        return
+    check = getattr(transport, "raise_formatted_for_status", None)
+    if check is None or getattr(check, "_version_bound", False):
+        return
+    if "version" not in inspect.signature(check).parameters:
+        return  # Fixed upstream.
+
+    def bound(response, version=match.group(1)):
+        return check(response, version)
+
+    bound._version_bound = True
+    transport.raise_formatted_for_status = bound
 
 
 def _download_url(url: str) -> str:
@@ -2801,6 +2834,7 @@ def upload_youtube_video(
                 return result
 
             service = client.get_service("YouTubeVideoUploadService")
+            _fix_resumable_upload_errors(service)
             file.seek(0)
             try:
                 response = service.create_you_tube_video_upload(
