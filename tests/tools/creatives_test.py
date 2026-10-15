@@ -19,8 +19,11 @@ version), so a wrong field or enum name fails here, not in production; only the
 network call is mocked.
 """
 
+import struct
 import unittest
 from unittest import mock
+
+import requests
 
 from fastmcp.exceptions import ToolError
 from google.auth.credentials import AnonymousCredentials
@@ -745,6 +748,195 @@ class LinkAssetsTest(CreativesTestBase):
             self.first(ops, "ad_group_asset_operation")["create"]["ad_group"],
             f"customers/{CUSTOMER}/adGroups/55",
         )
+
+
+def box(kind, payload):
+    return struct.pack(">I4s", 8 + len(payload), kind.encode()) + payload
+
+
+def fake_mp4(seconds=12.5, width=1080, height=1920):
+    """Smallest MP4 the inspector reads: ftyp, then moov/mvhd + trak/tkhd."""
+    mvhd = bytes(4) + struct.pack(">III", 0, 0, 1000)
+    mvhd += struct.pack(">I", int(seconds * 1000)) + bytes(80)
+    tkhd = bytes(76) + struct.pack(">II", width << 16, height << 16)
+    moov = box("moov", box("mvhd", mvhd) + box("trak", box("tkhd", tkhd)))
+    return box("ftyp", b"isom" + bytes(4)) + box("mdat", b"x" * 64) + moov
+
+
+def fake_download(body, headers=None, status=200):
+    response = mock.MagicMock()
+    response.ok = status < 400
+    response.status_code = status
+    response.headers = {"Content-Type": "video/mp4", **(headers or {})}
+    response.iter_content.return_value = [body[:50], body[50:]]
+    response.__enter__.return_value = response
+    return response
+
+
+class YouTubeUploadTest(CreativesTestBase):
+    URL = "https://drive.google.com/file/d/1AbCdEf/view?usp=sharing"
+    CHANNEL = "UC" + "a" * 22
+
+    def setUp(self):
+        super().setUp()
+        self.mp4 = fake_mp4()
+        self.get = mock.patch.object(
+            creatives.requests,
+            "get",
+            return_value=fake_download(self.mp4),
+        ).start()
+        self.addCleanup(mock.patch.stopall)
+        self.uploaded = []
+
+        def upload(customer_id, you_tube_video_upload, stream):
+            self.uploaded.append(stream.read())
+            return mock.MagicMock(
+                resource_name=f"customers/{customer_id}/youTubeVideoUploads/77"
+            )
+
+        self.service.create_you_tube_video_upload.side_effect = upload
+
+    def test_plan_downloads_and_inspects_without_uploading(self):
+        result = creatives.upload_youtube_video(CUSTOMER, self.URL, "Spring ad")
+        self.assertEqual(result["status"], "PLANNED (nothing uploaded)")
+        self.assertFalse(self.service.create_you_tube_video_upload.called)
+        self.assertEqual(
+            self.get.call_args.args[0],
+            "https://drive.usercontent.google.com/download"
+            "?id=1AbCdEf&export=download&confirm=t",
+        )
+        self.assertTrue(self.get.call_args.kwargs["stream"])
+        file = result["file"]
+        self.assertEqual(file["size_bytes"], len(self.mp4))
+        self.assertEqual(file["format"], "MP4")
+        self.assertEqual(file["duration_s"], 12.5)
+        self.assertEqual((file["width"], file["height"]), (1080, 1920))
+        self.assertEqual(result["plan"]["privacy"], "UNLISTED")
+        self.assertNotIn("log_payload", result)
+
+    def test_confirm_uploads_real_proto_and_reads_status(self):
+        status_row = mock.MagicMock()
+        status_row.you_tube_video_upload = self.client.get_type(
+            "YouTubeVideoUpload"
+        )
+        status_row.you_tube_video_upload.video_upload_id = 77
+        status_row.you_tube_video_upload.state = (
+            self.client.enums.YouTubeVideoUploadStateEnum.UPLOADED
+        )
+        status_row.you_tube_video_upload.video_id = "abcdefghijk"
+        with mock.patch.object(
+            creatives, "_query", return_value=[status_row]
+        ) as query:
+            result = creatives.upload_youtube_video(
+                CUSTOMER,
+                "https://cdn.example.com/ad.mp4",
+                "Spring ad",
+                description="New collection",
+                channel_id=self.CHANNEL,
+                privacy="public",
+                generative_content=False,
+                confirm=True,
+            )
+        self.assertIn("video_upload_id = 77", query.call_args.args[1])
+        self.assertEqual(self.uploaded, [self.mp4])
+        kwargs = self.service.create_you_tube_video_upload.call_args.kwargs
+        self.assertEqual(kwargs["customer_id"], CUSTOMER)
+        sent = creatives._to_dict(kwargs["you_tube_video_upload"])
+        self.assertEqual(
+            sent,
+            {
+                "video_title": "Spring ad",
+                "video_description": "New collection",
+                "channel_id": self.CHANNEL,
+                "video_privacy": "PUBLIC",
+                "video_content_metadata": {
+                    "generative_content_disclosure": "NON_GENERATIVE_CONTENT"
+                },
+            },
+        )
+        self.assertEqual(result["video_upload_id"], "77")
+        self.assertEqual(result["state"], "UPLOADED")
+        self.assertEqual(result["video_id"], "abcdefghijk")
+        self.assertEqual(
+            result["log_payload"]["action"], "upload_youtube_video"
+        )
+        self.assertEqual(result["log_payload"]["privacy"], "PUBLIC")
+
+    def test_upload_survives_unreadable_status(self):
+        with mock.patch.object(
+            creatives, "_query", side_effect=ToolError("not yet")
+        ):
+            result = creatives.upload_youtube_video(
+                CUSTOMER, self.URL, "Spring ad", confirm=True
+            )
+        self.assertEqual(result["status"], "UPLOADED")
+        self.assertNotIn("state", result)
+        sent = creatives._to_dict(
+            self.service.create_you_tube_video_upload.call_args.kwargs[
+                "you_tube_video_upload"
+            ]
+        )
+        self.assertEqual(sent["video_privacy"], "UNLISTED")
+        self.assertNotIn("channel_id", sent)
+
+    def test_rejects_bad_requests_before_downloading(self):
+        cases = [
+            dict(title=""),
+            dict(title="x" * 101),
+            dict(title="<b>Sale</b>"),
+            dict(privacy="PRIVATE"),
+            dict(privacy="PUBLIC"),  # Google-managed channel: UNLISTED only.
+            dict(channel_id="not-a-channel"),
+        ]
+        for case in cases:
+            args = {"title": "Spring ad", **case}
+            with self.subTest(case=case), self.assertRaises(ToolError):
+                creatives.upload_youtube_video(CUSTOMER, self.URL, **args)
+        self.assertFalse(self.get.called)
+
+    def test_download_errors_are_clear(self):
+        cases = [
+            (fake_download(b"<html>", {"Content-Type": "text/html"}), "page"),
+            (fake_download(b"", status=403), "HTTP 403"),
+            (fake_download(b""), "empty"),
+            (
+                fake_download(self.mp4, {"Content-Length": str(2**40)}),
+                "limit",
+            ),
+        ]
+        for response, message in cases:
+            self.get.return_value = response
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ToolError, message):
+                    creatives.upload_youtube_video(CUSTOMER, self.URL, "Ad")
+        self.get.side_effect = requests.ConnectionError("refused")
+        with self.assertRaisesRegex(ToolError, "Could not download"):
+            creatives.upload_youtube_video(CUSTOMER, self.URL, "Ad")
+
+    def test_streamed_size_cap(self):
+        with mock.patch.object(creatives, "MAX_VIDEO_BYTES", 100):
+            with self.assertRaisesRegex(ToolError, "limit"):
+                creatives.upload_youtube_video(CUSTOMER, self.URL, "Ad")
+
+    def test_status_by_id_or_resource_name(self):
+        row = mock.MagicMock()
+        row.you_tube_video_upload = self.client.get_type("YouTubeVideoUpload")
+        row.you_tube_video_upload.video_upload_id = 77
+        row.you_tube_video_upload.state = (
+            self.client.enums.YouTubeVideoUploadStateEnum.PROCESSED
+        )
+        row.you_tube_video_upload.video_id = "abcdefghijk"
+        with mock.patch.object(creatives, "_query", return_value=[row]) as q:
+            result = creatives.get_youtube_video_upload_status(
+                CUSTOMER, f"customers/{CUSTOMER}/youTubeVideoUploads/77"
+            )
+        self.assertIn("FROM you_tube_video_upload", q.call_args.args[1])
+        self.assertIn("video_upload_id = 77", q.call_args.args[1])
+        self.assertEqual(result["state"], "PROCESSED")
+        self.assertEqual(result["asset_ref"], {"youtube_video": "abcdefghijk"})
+        with mock.patch.object(creatives, "_query", return_value=[]):
+            with self.assertRaisesRegex(ToolError, "No YouTube video upload"):
+                creatives.get_youtube_video_upload_status(CUSTOMER, "78")
 
 
 class HelpersTest(unittest.TestCase):

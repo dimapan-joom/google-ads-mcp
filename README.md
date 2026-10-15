@@ -42,11 +42,17 @@ included.
   prices, business name, logos and images at account, campaign or ad-group
   level.
 - `upload_assets`: standalone assets to reuse by ID.
+- `upload_youtube_video`: download a video file (direct or Google Drive link)
+  and upload it to YouTube through the Google Ads API — to the Google-managed
+  channel of the account (UNLISTED) or a linked brand channel (UNLISTED or
+  PUBLIC). `confirm=false` (default) only downloads and inspects the file;
+  `confirm=true` uploads. `get_youtube_video_upload_status` reports the
+  processing state and the YouTube ID to use as a `YOUTUBE_VIDEO` asset.
 
 Every write is one atomic `GoogleAdsService.Mutate`, defaults to
 `validate_only=true` (Google validates the whole request, nothing is written)
-and creates new groups and ads `PAUSED`. Videos must already be on YouTube: the
-Google Ads API links YouTube videos, it does not upload video files.
+and creates new groups and ads `PAUSED`. Assets reference videos by YouTube ID;
+files that are not on YouTube yet go through `upload_youtube_video` first.
 
 ### Configuring and Namespacing Tools
 

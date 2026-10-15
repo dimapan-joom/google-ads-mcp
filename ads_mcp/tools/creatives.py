@@ -31,6 +31,9 @@ so copying is read -> edit -> write:
     prices, images, business name and logos at account, campaign or ad-group
     level.
   * upload_assets — create standalone assets and get their IDs.
+  * upload_youtube_video / get_youtube_video_upload_status — put a video file
+    (direct or Google Drive link) on YouTube through the Google Ads API, so its
+    ID can be used as a YOUTUBE_VIDEO asset.
 
 Asset references ("asset refs") accepted wherever an asset is expected:
 
@@ -60,7 +63,10 @@ sheets-log/log_change.
 
 import base64
 import io
+import os
 import re
+import struct
+import tempfile
 from datetime import date
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -80,6 +86,13 @@ import ads_mcp.utils as utils
 MAX_IMAGE_BYTES = 5_120 * 1024  # Google Ads image asset limit.
 IMAGE_FETCH_TIMEOUT_S = 30
 ASPECT_TOLERANCE = 0.03
+# Video files are streamed to a temporary file, never held in memory; the cap
+# bounds the disk they take. Override with GOOGLE_ADS_MCP_MAX_VIDEO_MB.
+MAX_VIDEO_BYTES = (
+    int(os.environ.get("GOOGLE_ADS_MCP_MAX_VIDEO_MB", "2048")) * 1024 * 1024
+)
+VIDEO_FETCH_TIMEOUT_S = (10, 60)  # (connect, between bytes)
+VIDEO_CHUNK_BYTES = 1024 * 1024
 GOOGLE_IMAGE_FORMATS = {"JPEG", "PNG", "GIF"}
 
 # Performance Max asset group: field type -> (min, max, max text length).
@@ -2435,19 +2448,445 @@ def upload_assets(
     return result
 
 
+# --- YouTube video upload ---------------------------------------------------
+
+# YouTubeVideoUpload.video_privacy has no PRIVATE value: an Ads asset has to be
+# watchable, so the API offers PUBLIC and UNLISTED only.
+YOUTUBE_PRIVACIES = ("UNLISTED", "PUBLIC")
+_YOUTUBE_CHANNEL = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
+_YOUTUBE_FORBIDDEN = re.compile(r"[<>]")
+_DRIVE_URL = re.compile(
+    r"^https?://(?:drive|docs)\.google\.com/"
+    r"(?:file/d/([A-Za-z0-9_-]+)|(?:open|uc)\?(?:.*&)?id=([A-Za-z0-9_-]+))"
+)
+_UPLOAD_RN = re.compile(r"^customers/(\d+)/youTubeVideoUploads/(\d+)$")
+
+
+def _download_url(url: str) -> str:
+    """Direct download URL; Google Drive share links are rewritten."""
+    url = (url or "").strip()
+    if not re.match(r"^https?://", url):
+        raise ToolError(f"video_url must be an http(s) URL, got {url!r}")
+    match = _DRIVE_URL.match(url)
+    if match:
+        file_id = match.group(1) or match.group(2)
+        return (
+            "https://drive.usercontent.google.com/download"
+            f"?id={file_id}&export=download&confirm=t"
+        )
+    return url
+
+
+def _download_video(url: str, file: Any) -> Dict[str, Any]:
+    """Streams url into the open binary file; returns what the server said."""
+    source = _download_url(url)
+    try:
+        response = requests.get(
+            source, stream=True, timeout=VIDEO_FETCH_TIMEOUT_S
+        )
+    except requests.RequestException as ex:
+        raise ToolError(f"Could not download video {url}: {ex}")
+    with response:
+        if not response.ok:
+            raise ToolError(
+                f"Could not download video {url}: HTTP {response.status_code}"
+            )
+        content_type = response.headers.get("Content-Type", "")
+        if content_type.startswith("text/html"):
+            raise ToolError(
+                f"{url} returned a web page, not a video file. Use a direct "
+                "file link; a Google Drive file must be shared as 'Anyone "
+                "with the link'."
+            )
+        declared = int(response.headers.get("Content-Length") or 0)
+        if declared > MAX_VIDEO_BYTES:
+            raise ToolError(
+                f"Video is {declared / 2**20:.0f} MB; the limit is "
+                f"{MAX_VIDEO_BYTES / 2**20:.0f} MB"
+            )
+        size = 0
+        try:
+            for chunk in response.iter_content(VIDEO_CHUNK_BYTES):
+                size += len(chunk)
+                if size > MAX_VIDEO_BYTES:
+                    raise ToolError(
+                        f"Video is larger than the "
+                        f"{MAX_VIDEO_BYTES / 2**20:.0f} MB limit"
+                    )
+                file.write(chunk)
+        except requests.RequestException as ex:
+            raise ToolError(f"Download of {url} broke off: {ex}")
+        file.flush()
+        disposition = response.headers.get("Content-Disposition", "")
+        name = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)', disposition)
+    if not size:
+        raise ToolError(f"{url} returned an empty file")
+    return {
+        "source_url": url,
+        "download_url": source,
+        "file_name": name.group(1) if name else None,
+        "content_type": content_type or None,
+        "size_bytes": size,
+        "size_mb": round(size / 2**20, 1),
+    }
+
+
+def _boxes(file: Any, start: int, end: int):
+    """Yields (type, payload_start, box_end) of ISO-BMFF boxes in a range."""
+    offset = start
+    while offset + 8 <= end:
+        file.seek(offset)
+        header = file.read(16)
+        if len(header) < 8:
+            return
+        size, kind = struct.unpack(">I4s", header[:8])
+        payload = offset + 8
+        if size == 1 and len(header) == 16:
+            size = struct.unpack(">Q", header[8:16])[0]
+            payload = offset + 16
+        elif size == 0:
+            size = end - offset
+        if size < payload - offset:
+            return
+        yield kind.decode("latin-1"), payload, min(offset + size, end)
+        offset += size
+
+
+def _child(file: Any, start: int, end: int, kind: str) -> Optional[Tuple]:
+    for box in _boxes(file, start, end):
+        if box[0] == kind:
+            return box
+    return None
+
+
+def _inspect_video(file: Any) -> Dict[str, Any]:
+    """Container format, duration and frame size, read from the headers only.
+
+    Covers MP4/MOV (the common ad formats) fully; other containers are only
+    recognised. YouTube transcodes, so an unknown format is a warning.
+    """
+    end = file.seek(0, os.SEEK_END)
+    file.seek(0)
+    head = file.read(12)
+    if head[4:8] == b"ftyp":
+        info: Dict[str, Any] = {
+            "format": "MOV" if head[8:12] == b"qt  " else "MP4",
+            "brand": head[8:12].decode("latin-1").strip(),
+        }
+    elif head[:4] == b"\x1a\x45\xdf\xa3":
+        return {"format": "WEBM/MKV"}
+    elif head[:4] == b"RIFF" and head[8:12] == b"AVI ":
+        return {"format": "AVI"}
+    elif head.lstrip()[:1] == b"<":
+        raise ToolError("The link returned a web page, not a video file")
+    else:
+        return {"format": "UNKNOWN"}
+
+    moov = _child(file, 0, end, "moov")
+    if not moov:
+        info["warning"] = "No 'moov' header found; the file may be truncated"
+        return info
+    mvhd = _child(file, moov[1], moov[2], "mvhd")
+    if mvhd:
+        file.seek(mvhd[1])
+        version = file.read(1)[0]
+        if version == 1:
+            file.seek(mvhd[1] + 20)
+            timescale, duration = struct.unpack(">IQ", file.read(12))
+        else:
+            file.seek(mvhd[1] + 12)
+            timescale, duration = struct.unpack(">II", file.read(8))
+        if timescale:
+            info["duration_s"] = round(duration / timescale, 2)
+    for kind, start, stop in _boxes(file, moov[1], moov[2]):
+        if kind != "trak":
+            continue
+        tkhd = _child(file, start, stop, "tkhd")
+        if not tkhd or tkhd[2] - tkhd[1] < 84:
+            continue
+        file.seek(tkhd[2] - 8)
+        width, height = struct.unpack(">II", file.read(8))
+        if width and height:
+            info["width"], info["height"] = width >> 16, height >> 16
+            info["aspect_ratio"] = round(info["width"] / info["height"], 3)
+            break
+    return info
+
+
+def _check_youtube_text(field: str, text: str, limit: int) -> None:
+    if len(text) > limit:
+        raise ToolError(f"{field} is {len(text)} chars, YouTube allows {limit}")
+    if _YOUTUBE_FORBIDDEN.search(text):
+        raise ToolError(f"{field} must not contain '<' or '>'")
+
+
+def _upload_status(
+    customer_id: str, video_upload_id: str, login_customer_id: Optional[str]
+) -> Dict[str, Any]:
+    rows = _query(
+        customer_id,
+        "SELECT you_tube_video_upload.resource_name,"
+        " you_tube_video_upload.video_upload_id,"
+        " you_tube_video_upload.channel_id,"
+        " you_tube_video_upload.video_id,"
+        " you_tube_video_upload.state,"
+        " you_tube_video_upload.video_privacy"
+        " FROM you_tube_video_upload"
+        f" WHERE you_tube_video_upload.video_upload_id = {video_upload_id}",
+        login_customer_id,
+    )
+    if not rows:
+        raise ToolError(
+            f"No YouTube video upload {video_upload_id} in customer "
+            f"{customer_id}"
+        )
+    upload = rows[0].you_tube_video_upload
+    state = _enum_name(upload.state)
+    result = {
+        "resource_name": upload.resource_name,
+        "video_upload_id": str(upload.video_upload_id),
+        "channel_id": upload.channel_id or None,
+        "state": state,
+        "video_privacy": _enum_name(upload.video_privacy),
+        "video_id": upload.video_id or None,
+    }
+    if upload.video_id:
+        result["youtube_url"] = f"https://youtu.be/{upload.video_id}"
+        result["asset_ref"] = {"youtube_video": upload.video_id}
+    result["next_step"] = {
+        "PENDING": "Still uploading; check again later.",
+        "UPLOADED": "Uploaded, YouTube is processing it; check again in a "
+        "few minutes. It can already be linked, but serves after PROCESSED.",
+        "PROCESSED": "Ready. Use asset_ref as a YOUTUBE_VIDEO asset in "
+        "create_asset_group / copy_asset_group / update_asset_group / "
+        "create_ad / upload_assets.",
+        "FAILED": "YouTube could not process the file; upload it again.",
+        "REJECTED": "YouTube rejected the video (policy or format).",
+        "UNAVAILABLE": "The video is no longer available on YouTube.",
+    }.get(state, "Unknown state; check again later.")
+    return result
+
+
+def upload_youtube_video(
+    customer_id: str,
+    video_url: str,
+    title: str,
+    description: Optional[str] = None,
+    channel_id: Optional[str] = None,
+    privacy: Literal["UNLISTED", "PUBLIC"] = "UNLISTED",
+    generative_content: Optional[bool] = None,
+    login_customer_id: Optional[str] = None,
+    confirm: bool = False,
+) -> Dict[str, Any]:
+    """Upload a video file to YouTube through Google Ads, to use as an asset.
+
+    The server downloads the file (a direct link or a Google Drive share link
+    with "Anyone with the link" access) and uploads it with the Google Ads
+    API's YouTubeVideoUploadService, so no YouTube credentials are needed.
+
+    There is no validate_only for uploads, so this is a two-step tool:
+      * confirm=false (default): downloads and inspects the file (size,
+        format, duration, frame size) and returns the plan. Nothing is
+        uploaded. Show the plan to the user.
+      * confirm=true: downloads again and uploads. Processing is asynchronous:
+        poll get_youtube_video_upload_status until state is PROCESSED, then use
+        {"youtube_video": video_id} in create_asset_group / copy_asset_group /
+        update_asset_group / create_ad.
+
+    Destination: without channel_id the video goes to the Google-managed
+    YouTube channel of the Ads account, where only UNLISTED is allowed. With
+    channel_id (a brand channel linked to the account) privacy may be UNLISTED
+    or PUBLIC; the API has no PRIVATE option.
+
+    privacy="PUBLIC" publishes the video publicly on the brand channel. Only
+    call with confirm=true and PUBLIC after the user has explicitly confirmed
+    that exact video, title and channel for public publication.
+
+    Args:
+        customer_id: Google Ads customer ID (digits only).
+        video_url: Direct file URL or Google Drive share link.
+        title: YouTube title, up to 100 chars, no '<' or '>'.
+        description: YouTube description, up to 5000 chars.
+        channel_id: Brand YouTube channel ID (UC...). Omit for the
+            Google-managed channel of the account.
+        privacy: UNLISTED (default) or PUBLIC (brand channel only).
+        generative_content: Disclose whether the video contains realistic
+            AI-generated content (true/false); omit if not known.
+        login_customer_id: Manager (MCC) account ID to use as login-customer-id.
+        confirm: false = plan only (nothing uploaded); true = upload.
+    """
+    customer_id = _cid(customer_id)
+    title = (title or "").strip()
+    if not title:
+        raise ToolError("title is required")
+    _check_youtube_text("title", title, 100)
+    description = (description or "").strip()
+    _check_youtube_text("description", description, 5000)
+    privacy = (privacy or "UNLISTED").strip().upper()
+    if privacy not in YOUTUBE_PRIVACIES:
+        raise ToolError(
+            f"privacy must be one of {', '.join(YOUTUBE_PRIVACIES)}; the "
+            "Google Ads API has no PRIVATE option"
+        )
+    channel_id = (channel_id or "").strip() or None
+    if channel_id and not _YOUTUBE_CHANNEL.match(channel_id):
+        raise ToolError(
+            f"channel_id must look like UC + 22 characters, got {channel_id!r}"
+        )
+    if not channel_id and privacy != "UNLISTED":
+        raise ToolError(
+            "The Google-managed channel only allows UNLISTED; pass the brand "
+            "channel_id to publish PUBLIC"
+        )
+
+    plan = {
+        "customer_id": customer_id,
+        "channel": channel_id or "Google-managed channel of the Ads account",
+        "privacy": privacy,
+        "title": title,
+        "description": description or None,
+        "generative_content": generative_content,
+    }
+    if confirm:  # Built before the download, so field errors surface first.
+        client = utils.get_googleads_client(login_customer_id=login_customer_id)
+        upload = client.get_type("YouTubeVideoUpload")
+        upload.video_title = title
+        if description:
+            upload.video_description = description
+        if channel_id:
+            upload.channel_id = channel_id
+        upload.video_privacy = client.enums.YouTubeVideoPrivacyEnum[privacy]
+        if generative_content is not None:
+            try:
+                disclosure = (
+                    client.enums.YouTubeVideoUploadGenerativeContentDisclosureEnum
+                )
+            except AttributeError:
+                raise ToolError(
+                    "generative_content needs Google Ads API v26 "
+                    "(google-ads>=34); omit it or upgrade the server"
+                )
+            upload.video_content_metadata.generative_content_disclosure = (
+                disclosure.GENERATIVE_CONTENT
+                if generative_content
+                else disclosure.NON_GENERATIVE_CONTENT
+            )
+    with tempfile.TemporaryDirectory(prefix="ads-video-") as tmp:
+        path = os.path.join(tmp, "video")
+        with open(path, "w+b") as file:
+            info = _download_video(video_url, file)
+            info.update(_inspect_video(file))
+            if not confirm:
+                result = {
+                    "confirm": False,
+                    "status": "PLANNED (nothing uploaded)",
+                    "plan": plan,
+                    "file": info,
+                    "next_step": (
+                        "Show the plan and file details to the user and, after "
+                        "explicit confirmation, call again with confirm=true."
+                    ),
+                }
+                if privacy == "PUBLIC":
+                    result["warning"] = (
+                        "PUBLIC publishes the video on the brand channel for "
+                        "everyone. Confirm this exact video, title and channel "
+                        "with the user first."
+                    )
+                return result
+
+            service = client.get_service("YouTubeVideoUploadService")
+            file.seek(0)
+            try:
+                response = service.create_you_tube_video_upload(
+                    customer_id=customer_id,
+                    you_tube_video_upload=upload,
+                    stream=file,
+                )
+            except GoogleAdsException as ex:
+                raise ToolError(_api_error(ex))
+            except (
+                gax_exceptions.GoogleAPICallError,
+                requests.RequestException,
+                RuntimeError,
+                ValueError,
+            ) as ex:
+                raise ToolError(f"YouTube video upload failed: {ex}")
+
+    resource_name = response.resource_name
+    match = _UPLOAD_RN.match(resource_name)
+    video_upload_id = match.group(2) if match else resource_name
+    result = {
+        "confirm": True,
+        "status": "UPLOADED",
+        "resource_name": resource_name,
+        "video_upload_id": video_upload_id,
+        "plan": plan,
+        "file": info,
+        "next_step": (
+            "Poll get_youtube_video_upload_status until state is PROCESSED, "
+            "then use {'youtube_video': video_id} as a YOUTUBE_VIDEO asset."
+        ),
+        "log_payload": {
+            "platform": "google_ads",
+            "customer_id": customer_id,
+            "action": "upload_youtube_video",
+            "resource_name": resource_name,
+            "channel": plan["channel"],
+            "privacy": privacy,
+            "title": title,
+            "source_url": video_url,
+        },
+    }
+    if match:
+        try:
+            status = _upload_status(
+                customer_id, video_upload_id, login_customer_id
+            )
+        except ToolError:
+            status = None  # Not readable yet; the upload itself succeeded.
+        if status:
+            result.update(
+                {k: status[k] for k in ("state", "video_id") if status[k]}
+            )
+    return result
+
+
+def get_youtube_video_upload_status(
+    customer_id: str,
+    video_upload_id: str,
+    login_customer_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """State and YouTube video ID of an upload made by upload_youtube_video.
+
+    States: PENDING (uploading), UPLOADED (YouTube is processing), PROCESSED
+    (ready), FAILED, REJECTED, UNAVAILABLE. Once video_id is set, asset_ref is
+    the value to pass as a YOUTUBE_VIDEO asset.
+
+    Args:
+        customer_id: Google Ads customer ID (digits only).
+        video_upload_id: The ID (or resource name) returned by the upload.
+        login_customer_id: Manager (MCC) account ID to use as login-customer-id.
+    """
+    customer_id = _cid(customer_id)
+    match = _UPLOAD_RN.match(str(video_upload_id).strip())
+    upload_id = _cid(match.group(2) if match else video_upload_id)
+    return _upload_status(customer_id, upload_id, login_customer_id)
+
+
 # --- Registration -----------------------------------------------------------
 
-mcp.add_tool(
-    Tool.from_function(
-        get_campaign_creatives, annotations=ToolAnnotations(readOnlyHint=True)
+for _fn in (get_campaign_creatives, get_youtube_video_upload_status):
+    mcp.add_tool(
+        Tool.from_function(_fn, annotations=ToolAnnotations(readOnlyHint=True))
     )
-)
 for _fn in (
     create_asset_group,
     copy_asset_group,
     create_ad,
     copy_ad,
     upload_assets,
+    upload_youtube_video,
 ):
     mcp.add_tool(
         Tool.from_function(
