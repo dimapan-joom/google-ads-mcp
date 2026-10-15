@@ -2492,6 +2492,11 @@ def _download_video(url: str, file: Any) -> Dict[str, Any]:
                 f"Could not download video {url}: HTTP {response.status_code}"
             )
         content_type = response.headers.get("Content-Type", "")
+        if "accounts.google.com" in str(getattr(response, "url", "")):
+            raise ToolError(
+                f"{url} asks to sign in: the file is not public. Share it as "
+                "'Anyone with the link' (not only your organisation) and retry."
+            )
         if content_type.startswith("text/html"):
             raise ToolError(
                 f"{url} returned a web page, not a video file. Use a direct "

@@ -895,9 +895,12 @@ class YouTubeUploadTest(CreativesTestBase):
         self.assertFalse(self.get.called)
 
     def test_download_errors_are_clear(self):
+        signin = fake_download(b"<html>", {"Content-Type": "text/html"})
+        signin.url = "https://accounts.google.com/v3/signin/identifier?x=1"
         cases = [
             (fake_download(b"<html>", {"Content-Type": "text/html"}), "page"),
             (fake_download(b"", status=403), "HTTP 403"),
+            (signin, "sign in"),
             (fake_download(b""), "empty"),
             (
                 fake_download(self.mp4, {"Content-Length": str(2**40)}),
